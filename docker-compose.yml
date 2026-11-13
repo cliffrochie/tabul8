@@ -8,6 +8,7 @@ services:
     working_dir: /var/www/html
     volumes:
       - ./backend:/var/www/html
+      - tabul8_db:/var/lib/tabul8
     ports:
       - "8000:8000"
     environment:
@@ -16,7 +17,7 @@ services:
       REVERB_HOST: reverb
       REVERB_PORT: 8080
       DB_CONNECTION: sqlite
-      DB_DATABASE: /var/www/html/database/database.sqlite
+      DB_DATABASE: /var/lib/tabul8/database.sqlite
 
   reverb:
     build:
@@ -28,12 +29,13 @@ services:
     working_dir: /var/www/html
     volumes:
       - ./backend:/var/www/html
+      - tabul8_db:/var/lib/tabul8
     ports:
       - "8080:8080"
     environment:
       APP_ENV: local
       DB_CONNECTION: sqlite
-      DB_DATABASE: /var/www/html/database/database.sqlite
+      DB_DATABASE: /var/lib/tabul8/database.sqlite
 
   frontend:
     image: node:22-alpine
@@ -44,3 +46,6 @@ services:
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
     ports:
       - "5173:5173"
+
+volumes:
+  tabul8_db:
