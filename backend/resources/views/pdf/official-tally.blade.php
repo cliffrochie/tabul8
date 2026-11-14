@@ -147,9 +147,29 @@
             font-size: 7.5px;
             color: #64748b;
         }
+        .watermark {
+            position: fixed;
+            top: 42%;
+            left: 12%;
+            width: 76%;
+            text-align: center;
+            font-size: 54px;
+            font-weight: bold;
+            letter-spacing: 6px;
+            color: rgba(15, 23, 42, 0.07);
+            transform: rotate(-28deg);
+            z-index: -1;
+        }
+        .hash-bar {
+            font-family: DejaVu Sans Mono, monospace;
+            font-size: 7.5px;
+            color: #334155;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
+    <div class="watermark">{{ $watermarkText ?? 'UNOFFICIAL DRAFT' }}</div>
     <div class="header">
         <div class="header-left">
             <div class="brand">TABUL8 · Official Competition Tabulation Sheet</div>
@@ -173,7 +193,13 @@
         <span><strong>Active Judges:</strong> {{ $judges->count() }}</span>
         <span><strong>Active Contestants:</strong> {{ count($results) }}</span>
         <span><strong>Weight in Overall:</strong> {{ number_format((float) $round->weight_in_overall, 2) }}%</span>
+        <span><strong>Sheet Status:</strong> {{ $watermarkText ?? 'UNOFFICIAL DRAFT' }}</span>
     </div>
+    @if(! empty($verificationHash))
+        <div class="hash-bar">
+            <strong>SHA-256 Verification Checksum:</strong> {{ $verificationHash }}
+        </div>
+    @endif
 
     <table class="tally">
         <thead>
@@ -194,6 +220,9 @@
                 </th>
                 <th style="width: 48px;">Ded.</th>
                 <th style="width: 60px;">Net Comp.</th>
+                @if(! $round->is_back_to_zero && $round->sequence > 1)
+                    <th style="width: 56px;">Cumul.</th>
+                @endif
                 <th style="width: 38px;">Qual.</th>
             </tr>
         </thead>
@@ -251,6 +280,11 @@
                     <td class="right">
                         <strong>{{ number_format($row->netComposite, 2) }}</strong>
                     </td>
+                    @if(! $round->is_back_to_zero && $round->sequence > 1)
+                        <td class="right">
+                            <strong>{{ $row->cumulativeScore !== null ? number_format((float) $row->cumulativeScore, 2) : '—' }}</strong>
+                        </td>
+                    @endif
                     <td class="center">
                         @if($row->isQualified)
                             <span class="badge-q">Q</span>
