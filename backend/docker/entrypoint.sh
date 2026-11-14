@@ -20,6 +20,9 @@ fi
 if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
   sqlite3 "$DB_PATH" "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;" >/dev/null 2>&1 || true
   if [ -f /var/www/html/artisan ]; then
+    if [ -z "${APP_KEY:-}" ] && [ -f /var/www/html/.env ] && grep -qE '^APP_KEY=$' /var/www/html/.env; then
+      php /var/www/html/artisan key:generate --force
+    fi
     php /var/www/html/artisan migrate --force
   fi
 fi
