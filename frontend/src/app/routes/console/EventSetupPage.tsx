@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ConsoleLayout } from '@/components/layouts/ConsoleLayout';
 import { Button } from '@/components/ui/button';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useAdminEventState } from '@/features/tabulator-console';
 import {
   ContestantsPanel,
@@ -52,6 +53,10 @@ export function EventSetupPage() {
   const { data: preflight } = useEventPreflight(state?.event?.id ?? null);
   const staffQuery = useStaffUsers(isSuperAdmin);
   const setup = useSetupMutations(eventId);
+
+  useDocumentTitle(
+    state?.event?.title ? `Setup · ${state.event.title}` : 'Event Setup Builder',
+  );
 
   const selectEvent = (nextId: number) => {
     setSearchParams({ eventId: String(nextId) });

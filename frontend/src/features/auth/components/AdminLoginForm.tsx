@@ -56,7 +56,7 @@ export function AdminLoginForm() {
         </div>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">Email</label>
             <Input type="email" placeholder="tabulator@tabul8.local" {...register('email')} />

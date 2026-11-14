@@ -10,6 +10,7 @@ import {
 import { useSearchParams } from 'react-router-dom';
 import { ConsoleLayout } from '@/components/layouts/ConsoleLayout';
 import { Badge } from '@/components/ui/badge';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -64,6 +65,10 @@ export function StageBroadcasterPage() {
 
   const { data: state, onlineJudgeIds, isLoading } = useAdminEventState(eventId);
   const { syncStage } = useAdminMutations(eventId, state?.active_round?.id);
+
+  useDocumentTitle(
+    state?.event?.title ? `MC Stage · ${state.event.title}` : 'MC Stage Cue Console',
+  );
 
   if (!canBroadcast) {
     return (
