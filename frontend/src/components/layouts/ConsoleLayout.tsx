@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { LogOut, ShieldCheck, AlertCircle } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { LogOut, ShieldCheck, AlertCircle, SlidersHorizontal, LayoutDashboard } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { resetEcho } from '@/lib/echo';
@@ -22,6 +22,7 @@ export function ConsoleLayout({
   children,
 }: ConsoleLayoutProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const user = useAuthStore((state) => state.user);
   const clearAuth = useAuthStore((state) => state.clearAuth);
 
@@ -47,6 +48,30 @@ export function ConsoleLayout({
                 Real-Time Tabulation &amp; Stage Control
               </p>
             </div>
+            <nav className="ml-4 hidden sm:flex items-center gap-1.5">
+              <Link
+                to="/console"
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${
+                  location.pathname === '/console'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <LayoutDashboard className="h-3.5 w-3.5" />
+                Live Console
+              </Link>
+              <Link
+                to="/console/setup"
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${
+                  location.pathname.startsWith('/console/setup')
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Event Setup
+              </Link>
+            </nav>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">

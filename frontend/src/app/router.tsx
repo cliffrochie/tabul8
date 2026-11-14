@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from '@/lib/auth';
 import { AdminLoginPage } from '@/app/routes/auth/AdminLoginPage';
 import { JudgePinLoginPage } from '@/app/routes/auth/JudgePinLoginPage';
+import { EventSetupPage } from '@/app/routes/console/EventSetupPage';
 import { TabulatorConsolePage } from '@/app/routes/console/TabulatorConsolePage';
 import { ArenaLedWallPage } from '@/app/routes/display/ArenaLedWallPage';
 import { JudgeMatrixPage } from '@/app/routes/judge/JudgeMatrixPage';
@@ -41,6 +42,14 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute allowedActor="user">
         <TabulatorConsolePage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/console/setup',
+    element: (
+      <ProtectedRoute allowedActor="user">
+        <EventSetupPage />
       </ProtectedRoute>
     ),
   },
