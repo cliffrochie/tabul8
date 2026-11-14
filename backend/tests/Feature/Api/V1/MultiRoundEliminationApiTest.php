@@ -186,13 +186,13 @@ it('finalizes with wildcard override, clamps next round advancement, activates n
     expect($fx['round2']->fresh()->advancement_count)->toBe(2)
         ->and($fx['round2']->fresh()->status)->toBe('active')
         ->and($fx['event']->fresh()->active_round_id)->toBe($fx['round2']->id)
-        ->and($fx['event']->fresh()->led_mode)->toBe('finalists_reveal')
+        ->and($fx['event']->fresh()->led_mode)->toBe('reveal')
         ->and($fx['event']->fresh()->revealed_contestant_ids)->toEqualCanonicalizing([$fx['c1']->id, $fx['c2']->id]);
 
     EventFacade::assertDispatched(StageStateUpdated::class, function (StageStateUpdated $e) use ($fx) {
         return $e->eventId === $fx['event']->id
             && $e->activeRoundId === $fx['round2']->id
-            && $e->ledMode === 'finalists_reveal';
+            && $e->ledMode === 'reveal';
     });
 });
 

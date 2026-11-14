@@ -395,7 +395,7 @@ final class AdminTabulationService
                 $eventChanged = true;
             }
             if ($pushToLedReveal) {
-                $event->led_mode = 'finalists_reveal';
+                $event->led_mode = 'reveal';
                 $event->revealed_contestant_ids = $qualifiers->pluck('contestant_id')->map('intval')->values()->all();
                 $eventChanged = true;
             }
