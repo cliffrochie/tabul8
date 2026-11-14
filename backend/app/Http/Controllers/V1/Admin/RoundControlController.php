@@ -4,6 +4,7 @@ namespace App\Http\Controllers\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\FinalizeRoundRequest;
+use App\Http\Resources\RoundResource;
 use App\Http\Resources\RoundResultResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\Judge;
@@ -24,11 +25,39 @@ final class RoundControlController extends Controller
             actor: $actor,
             round: $round,
             ipAddress: $request->ip() ?? '127.0.0.1',
+            options: $request->validated(),
         );
 
         return ApiResponse::success(
-            ['leaderboard' => RoundResultResource::collection($leaderboard)],
+            [
+                'round' => new RoundResource($round->fresh()),
+                'leaderboard' => RoundResultResource::collection($leaderboard),
+            ],
             'Round finalized and qualifiers advanced.'
+        );
+    }
+
+    public function reopen(Request $request, Round $round, AdminTabulationService $service): JsonResponse
+    {
+        $actor = $request->user();
+        if (! $actor instanceof User || ! $actor->is_active || ! in_array($actor->role, ['super_admin', 'tabulator'], true)) {
+            return ApiResponse::error('Forbidden.', null, 403);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $reopened = $service->reopenRound(
+            actor: $actor,
+            round: $round,
+            ipAddress: $request->ip() ?? '127.0.0.1',
+            reason: $validated['reason'] ?? null,
+        );
+
+        return ApiResponse::success(
+            ['round' => new RoundResource($reopened)],
+            'Finalized round reopened.'
         );
     }
 

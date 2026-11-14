@@ -21,6 +21,12 @@ final class FinalizeRoundRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [];
+        return [
+            'activate_next_round' => ['sometimes', 'boolean'],
+            'push_to_led_reveal' => ['sometimes', 'boolean'],
+            'qualified_contestant_ids' => ['sometimes', 'array', 'min:1'],
+            'qualified_contestant_ids.*' => ['integer', 'exists:contestants,id'],
+            'override_reason' => ['nullable', 'string', 'max:255'],
+        ];
     }
 }

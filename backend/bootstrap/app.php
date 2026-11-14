@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\UnresolvedCutoffTieException;
 use App\Http\Responses\ApiResponse;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -50,6 +51,20 @@ return Application::configure(basePath: dirname(__DIR__))
 
             if ($e instanceof ModelNotFoundException) {
                 return ApiResponse::error('Resource not found.', null, 404);
+            }
+
+            if ($e instanceof UnresolvedCutoffTieException) {
+                return ApiResponse::error(
+                    $e->getMessage(),
+                    [
+                        'cutoff_tie' => [
+                            'round_id' => $e->roundId,
+                            'advancement_count' => $e->advancementCount,
+                            'tied_contestant_ids' => $e->tiedContestantIds,
+                        ],
+                    ],
+                    409
+                );
             }
 
             if ($e instanceof HttpExceptionInterface) {

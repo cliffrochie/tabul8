@@ -6,6 +6,7 @@ use App\Events\JudgeScoreUpdated;
 use App\Events\LedWallUpdated;
 use App\Events\StageStateUpdated;
 use App\Events\UnlockRequestResolved;
+use App\Exceptions\UnresolvedCutoffTieException;
 use App\Http\Resources\ContestantResource;
 use App\Http\Resources\RoundResultResource;
 use App\Models\Contestant;
@@ -26,6 +27,7 @@ final class AdminTabulationService
 {
     public function __construct(
         private readonly ScoringEngineService $scoringEngine,
+        private readonly RoundRosterService $rosterService,
     ) {}
 
     /**
@@ -249,15 +251,17 @@ final class AdminTabulationService
     }
 
     /**
+     * @param  array<string, mixed>  $options
      * @return Collection<int, RoundResult>
      */
-    public function finalizeRound(User $actor, Round $round, string $ipAddress): Collection
+    public function finalizeRound(User $actor, Round $round, string $ipAddress, array $options = []): Collection
     {
-        $activeJudges = $round->event->judges()->where('is_active', true)->pluck('id');
-        $activeContestants = $round->contestants()->where('contestants.status', 'active')->pluck('contestants.id');
-        if ($activeContestants->isEmpty()) {
-            $activeContestants = $round->event->contestants()->where('status', 'active')->pluck('id');
+        if ($round->status === 'finalized') {
+            throw new ConflictHttpException('Round is already finalized.');
         }
+
+        $activeJudges = $round->event->judges()->where('is_active', true)->pluck('id');
+        $activeContestants = collect($this->rosterService->getActiveContestantIds($round));
 
         $unlockedCount = Score::where('round_id', $round->id)
             ->whereIn('judge_id', $activeJudges)
@@ -282,12 +286,77 @@ final class AdminTabulationService
 
         $leaderboard = $this->scoringEngine->tabulateRound($round);
 
-        DB::transaction(function () use ($actor, $round, $leaderboard, $ipAddress): void {
+        /** @var array<int, int>|null $qualifiedIdsOverride */
+        $qualifiedIdsOverride = isset($options['qualified_contestant_ids']) && is_array($options['qualified_contestant_ids'])
+            ? array_values(array_unique(array_intersect(
+                array_map('intval', $options['qualified_contestant_ids']),
+                $activeContestants->map('intval')->all()
+            )))
+            : null;
+        $overrideReason = isset($options['override_reason']) && is_string($options['override_reason'])
+            ? trim($options['override_reason']) ?: null
+            : null;
+        $activateNextRound = (bool) ($options['activate_next_round'] ?? false);
+        $pushToLedReveal = (bool) ($options['push_to_led_reveal'] ?? false);
+
+        if ($qualifiedIdsOverride === null) {
+            if ($this->scoringEngine->hasUnresolvedCutoffTie($round, $leaderboard)) {
+                $k = (int) $round->advancement_count;
+                $atCutoff = $leaderboard->sortBy('final_rank')->values()->get($k - 1);
+                $tiedIds = $atCutoff !== null
+                    ? $leaderboard->where('final_rank', $atCutoff->final_rank)
+                        ->pluck('contestant_id')
+                        ->map('intval')
+                        ->values()
+                        ->all()
+                    : [];
+
+                throw new UnresolvedCutoffTieException($round->id, $k, $tiedIds);
+            }
+        } elseif ($qualifiedIdsOverride === []) {
+            throw new ConflictHttpException('At least one active contestant must be selected to advance.');
+        }
+
+        $autoQualifierIds = $leaderboard->where('is_qualified', true)
+            ->pluck('contestant_id')
+            ->map('intval')
+            ->values()
+            ->all();
+
+        DB::transaction(function () use (
+            $actor,
+            $round,
+            &$leaderboard,
+            $ipAddress,
+            $qualifiedIdsOverride,
+            $overrideReason,
+            $activateNextRound,
+            $pushToLedReveal,
+            $autoQualifierIds
+        ): void {
             $round->update([
                 'status' => 'finalized',
                 'is_locked' => true,
                 'finalized_at' => now(),
             ]);
+
+            if ($qualifiedIdsOverride !== null) {
+                RoundResult::where('round_id', $round->id)->each(function (RoundResult $row) use ($qualifiedIdsOverride): void {
+                    $shouldQualify = in_array((int) $row->contestant_id, $qualifiedIdsOverride, true);
+                    if ((bool) $row->is_qualified !== $shouldQualify) {
+                        $row->update(['is_qualified' => $shouldQualify]);
+                    }
+                });
+
+                $leaderboard = RoundResult::where('round_id', $round->id)
+                    ->orderBy('final_rank')
+                    ->orderByDesc('cumulative_score')
+                    ->get();
+            }
+
+            $qualifiers = $qualifiedIdsOverride !== null
+                ? $leaderboard->whereIn('contestant_id', $qualifiedIdsOverride)->sortBy('final_rank')->values()
+                : $leaderboard->where('is_qualified', true)->sortBy('final_rank')->values();
 
             $nextRound = Round::where('event_id', $round->event_id)
                 ->where('sequence', '>', $round->sequence)
@@ -295,28 +364,178 @@ final class AdminTabulationService
                 ->first();
 
             if ($nextRound !== null) {
-                $qualifiers = $leaderboard->where('is_qualified', true)->values();
                 $syncData = [];
                 foreach ($qualifiers as $idx => $result) {
                     $syncData[$result->contestant_id] = [
                         'performance_order' => $idx + 1,
                         'qualified_from_rank' => $result->final_rank,
+                        'qualification_method' => $qualifiedIdsOverride !== null ? 'MANUAL_WILDCARD' : 'AUTO_TOP_N',
+                        'override_reason' => $qualifiedIdsOverride !== null ? $overrideReason : null,
                     ];
                 }
                 $nextRound->contestants()->sync($syncData);
+
+                if ($qualifiers->isNotEmpty() && (int) $nextRound->advancement_count > $qualifiers->count()) {
+                    $nextRound->advancement_count = $qualifiers->count();
+                }
+
+                if ($activateNextRound) {
+                    $nextRound->status = 'active';
+                    $nextRound->is_locked = false;
+                }
+
+                $nextRound->save();
+            }
+
+            $event = $round->event;
+            $eventChanged = false;
+            if ($activateNextRound && $nextRound !== null) {
+                $event->active_round_id = $nextRound->id;
+                $event->on_stage_contestant_id = $qualifiers->first()?->contestant_id ?? $event->on_stage_contestant_id;
+                $eventChanged = true;
+            }
+            if ($pushToLedReveal) {
+                $event->led_mode = 'finalists_reveal';
+                $event->revealed_contestant_ids = $qualifiers->pluck('contestant_id')->map('intval')->values()->all();
+                $eventChanged = true;
+            }
+            if ($eventChanged) {
+                $event->save();
             }
 
             ScoreAuditLog::create([
                 'event_id' => $round->event_id,
                 'round_id' => $round->id,
                 'actor_user_id' => $actor->id,
-                'action' => 'ROUND_FROZEN',
-                'reason' => 'Round finalized and qualifiers advanced',
+                'action' => 'ROUND_FINALIZED',
+                'reason' => $overrideReason ?: 'Round finalized and qualifiers advanced',
+                'metadata' => [
+                    'qualified_contestant_ids' => $qualifiers->pluck('contestant_id')->map('intval')->values()->all(),
+                    'activate_next_round' => $activateNextRound,
+                    'push_to_led_reveal' => $pushToLedReveal,
+                ],
+                'ip_address' => $ipAddress,
+            ]);
+
+            if ($qualifiedIdsOverride !== null) {
+                ScoreAuditLog::create([
+                    'event_id' => $round->event_id,
+                    'round_id' => $round->id,
+                    'actor_user_id' => $actor->id,
+                    'action' => 'QUALIFIER_OVERRIDE',
+                    'reason' => $overrideReason ?: 'Manual qualifier override during round finalization',
+                    'metadata' => [
+                        'auto_qualifier_ids' => $autoQualifierIds,
+                        'selected_qualifier_ids' => $qualifiers->pluck('contestant_id')->map('intval')->values()->all(),
+                    ],
+                    'ip_address' => $ipAddress,
+                ]);
+            }
+        });
+
+        $event = $round->event->fresh();
+        $activeRound = $event->active_round_id ? Round::find($event->active_round_id) : $round->fresh();
+
+        broadcast(new StageStateUpdated(
+            eventId: $event->id,
+            activeRoundId: $event->active_round_id,
+            scoringStrategy: $activeRound?->scoring_strategy ?? $round->scoring_strategy,
+            onStageContestantId: $event->on_stage_contestant_id,
+            isRoundFrozen: $activeRound?->is_locked ?? $round->is_locked,
+            ledMode: $event->led_mode,
+            revealedContestantIds: $event->revealed_contestant_ids ?? [],
+        ));
+
+        if ($pushToLedReveal) {
+            $onStage = $event->on_stage_contestant_id ? Contestant::find($event->on_stage_contestant_id) : null;
+            $revealed = Contestant::whereIn('id', $event->revealed_contestant_ids ?? [])->get();
+
+            broadcast(new LedWallUpdated(
+                eventId: $event->id,
+                ledMode: $event->led_mode,
+                onStageContestant: $onStage ? (new ContestantResource($onStage))->resolve() : null,
+                revealedContestantIds: $event->revealed_contestant_ids ?? [],
+                finalistsPublicCards: ContestantResource::collection($revealed)->resolve(),
+            ));
+        }
+
+        return $leaderboard;
+    }
+
+    public function reopenRound(User $actor, Round $round, string $ipAddress, ?string $reason = null): Round
+    {
+        if ($round->status !== 'finalized') {
+            throw new ConflictHttpException('Only finalized rounds can be reopened.');
+        }
+
+        $laterRoundIds = Round::where('event_id', $round->event_id)
+            ->where('sequence', '>', $round->sequence)
+            ->pluck('id');
+
+        if ($laterRoundIds->isNotEmpty()) {
+            $hasLockedSubsequent = Score::whereIn('round_id', $laterRoundIds)
+                ->whereIn('status', ['LOCKED', 'UNLOCK_REQUESTED'])
+                ->exists();
+
+            $hasFinalizedSubsequent = Round::whereIn('id', $laterRoundIds)
+                ->where('status', 'finalized')
+                ->exists();
+
+            if ($hasLockedSubsequent || $hasFinalizedSubsequent) {
+                throw new ConflictHttpException(
+                    'Cannot reopen round: a subsequent round already has locked judge scores or has been finalized.'
+                );
+            }
+        }
+
+        DB::transaction(function () use ($actor, $round, $ipAddress, $reason, $laterRoundIds): void {
+            $round->update([
+                'status' => 'active',
+                'is_locked' => false,
+                'finalized_at' => null,
+            ]);
+
+            if ($laterRoundIds->isNotEmpty()) {
+                $laterRounds = Round::whereIn('id', $laterRoundIds)->get();
+                foreach ($laterRounds as $laterRound) {
+                    $laterRound->contestants()->detach();
+                    Score::where('round_id', $laterRound->id)->where('status', 'DRAFT')->delete();
+                    RoundResult::where('round_id', $laterRound->id)->delete();
+                    $laterRound->update([
+                        'status' => 'upcoming',
+                        'is_locked' => false,
+                    ]);
+                }
+            }
+
+            $event = $round->event;
+            $event->active_round_id = $round->id;
+            $event->save();
+
+            ScoreAuditLog::create([
+                'event_id' => $round->event_id,
+                'round_id' => $round->id,
+                'actor_user_id' => $actor->id,
+                'action' => 'ROUND_REOPENED',
+                'reason' => $reason ?: 'Finalized round reopened by Chief Tabulator',
                 'ip_address' => $ipAddress,
             ]);
         });
 
-        return $leaderboard;
+        $event = $round->event->fresh();
+        $reopened = $round->fresh();
+
+        broadcast(new StageStateUpdated(
+            eventId: $event->id,
+            activeRoundId: $event->active_round_id,
+            scoringStrategy: $reopened->scoring_strategy,
+            onStageContestantId: $event->on_stage_contestant_id,
+            isRoundFrozen: $reopened->is_locked,
+            ledMode: $event->led_mode,
+            revealedContestantIds: $event->revealed_contestant_ids ?? [],
+        ));
+
+        return $reopened;
     }
 
     /**

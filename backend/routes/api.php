@@ -37,6 +37,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/deductions', [DeductionController::class, 'store']);
             Route::post('/stage-sync', [StageSyncController::class, 'push']);
             Route::post('/rounds/{round}/finalize', [RoundControlController::class, 'finalize']);
+            Route::post('/rounds/{round}/reopen', [RoundControlController::class, 'reopen']);
             Route::post('/rounds/{round}/judges/{judge}/exclude', [RoundControlController::class, 'excludeJudge']);
             Route::get('/rounds/{round}/tally-pdf', [ReportController::class, 'exportPdf']);
         });

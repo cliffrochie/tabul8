@@ -14,6 +14,7 @@ use App\Models\Judge;
 use App\Models\Round;
 use App\Models\Score;
 use App\Models\User;
+use App\Services\RoundRosterService;
 use App\Services\ScoreService;
 use App\Services\Scoring\ScoringEngineService;
 use Illuminate\Http\JsonResponse;
@@ -25,7 +26,8 @@ final class EventStateController extends Controller
         Request $request,
         Event $event,
         ScoreService $scoreService,
-        ScoringEngineService $scoringEngine
+        ScoringEngineService $scoringEngine,
+        RoundRosterService $rosterService
     ): JsonResponse {
         $actor = $request->user();
 
@@ -38,10 +40,43 @@ final class EventStateController extends Controller
             ->orderBy('candidate_number')
             ->get();
 
+        if ($activeRound !== null) {
+            $qualifiedMap = $rosterService->getQualifiedContestants($activeRound)->keyBy('id');
+            $eliminatedMap = $rosterService->getEliminatedContestants($activeRound)
+                ->keyBy(fn (array $row) => $row['contestant']->id);
+
+            foreach ($contestants as $contestant) {
+                $qualified = $qualifiedMap->get($contestant->id);
+                if ($qualified !== null) {
+                    $pivot = $qualified->pivot;
+                    $contestant->setAttribute('is_qualified_in_active_round', true);
+                    $contestant->setAttribute(
+                        'qualified_from_rank',
+                        $pivot?->qualified_from_rank ? (int) $pivot->qualified_from_rank : null
+                    );
+                    $contestant->setAttribute(
+                        'qualification_method',
+                        $pivot?->qualification_method ?? ($activeRound->sequence === 1 ? 'INITIAL_ROSTER' : null)
+                    );
+                    $contestant->setAttribute('eliminated_in_round_name', null);
+                } else {
+                    $elim = $eliminatedMap->get($contestant->id);
+                    $contestant->setAttribute('is_qualified_in_active_round', false);
+                    $contestant->setAttribute('qualified_from_rank', null);
+                    $contestant->setAttribute('qualification_method', null);
+                    $contestant->setAttribute(
+                        'eliminated_in_round_name',
+                        $elim['eliminated_in_round_name'] ?? 'Prior Round'
+                    );
+                }
+            }
+        }
+
         $payload = [
             'event' => new EventResource($event),
-            'rounds' => RoundResource::collection($event->rounds()->with('criteria')->get()),
+            'rounds' => RoundResource::collection($event->rounds()->with('criteria')->orderBy('sequence')->get()),
             'active_round' => $activeRound ? new RoundResource($activeRound) : null,
+            'round_funnel' => $rosterService->buildRoundFunnel($event),
             'contestants' => ContestantResource::collection($contestants),
         ];
 
@@ -49,7 +84,7 @@ final class EventStateController extends Controller
             $payload['my_scores'] = $scoreService->buildJudgeScoresMap($actor, $activeRound);
         } elseif ($actor instanceof User && $activeRound !== null) {
             $payload['judges'] = JudgeResource::collection($event->judges()->orderBy('judge_number')->get());
-            $payload['scores_matrix'] = $this->buildAdminMatrix($activeRound);
+            $payload['scores_matrix'] = $this->buildAdminMatrix($activeRound, $rosterService);
             $results = $scoringEngine->tabulateRound($activeRound);
             $payload['leaderboard'] = RoundResultResource::collection($results);
         } else {
@@ -66,9 +101,12 @@ final class EventStateController extends Controller
     /**
      * @return array<string, array<string, array<string, mixed>>>
      */
-    private function buildAdminMatrix(Round $round): array
+    private function buildAdminMatrix(Round $round, RoundRosterService $rosterService): array
     {
-        $scores = Score::where('round_id', $round->id)->get();
+        $activeIds = $rosterService->getActiveContestantIds($round);
+        $scores = Score::where('round_id', $round->id)
+            ->whereIn('contestant_id', $activeIds)
+            ->get();
         $matrix = [];
 
         foreach ($scores as $score) {

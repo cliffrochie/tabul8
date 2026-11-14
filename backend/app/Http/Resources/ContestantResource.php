@@ -25,6 +25,10 @@ final class ContestantResource extends JsonResource
             'photo_url' => $this->photo_path
                 ? "/api/v1/events/{$this->event_id}/contestants/{$this->id}/photo"
                 : null,
+            'is_qualified_in_active_round' => (bool) ($this->resource->getAttribute('is_qualified_in_active_round') ?? true),
+            'qualified_from_rank' => $this->resource->getAttribute('qualified_from_rank'),
+            'qualification_method' => $this->resource->getAttribute('qualification_method'),
+            'eliminated_in_round_name' => $this->resource->getAttribute('eliminated_in_round_name'),
         ];
     }
 }

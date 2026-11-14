@@ -20,6 +20,7 @@ final class ScoreService
 {
     public function __construct(
         private readonly ScoringEngineService $scoringEngine,
+        private readonly RoundRosterService $rosterService,
     ) {}
 
     /**
@@ -40,14 +41,21 @@ final class ScoreService
         );
 
         $criteriaMap = $round->criteria()->get()->keyBy('id');
+        $activeContestantIds = $this->rosterService->getActiveContestantIds($round);
         $touchedContestants = [];
         $results = [];
 
-        DB::transaction(function () use ($judge, $round, $mutations, $criteriaMap, $ipAddress, &$touchedContestants, &$results): void {
+        DB::transaction(function () use ($judge, $round, $mutations, $criteriaMap, $activeContestantIds, $ipAddress, &$touchedContestants, &$results): void {
             foreach ($mutations as $mutation) {
                 $mutationId = $mutation['client_mutation_id'];
                 $contestantId = (int) $mutation['contestant_id'];
                 $action = $mutation['action'];
+
+                if (! in_array($contestantId, $activeContestantIds, true)) {
+                    throw ValidationException::withMessages([
+                        'contestant_id' => ['Contestant is eliminated or not qualified for this round.'],
+                    ]);
+                }
 
                 if (Score::where('client_mutation_id', $mutationId)->exists()) {
                     $results[] = ['client_mutation_id' => $mutationId, 'status' => 'DUPLICATE_IGNORED'];
@@ -129,11 +137,15 @@ final class ScoreService
             throw new ConflictHttpException('Round is currently frozen by the Chief Tabulator.');
         }
 
+        $activeContestantIds = $this->rosterService->getActiveContestantIds($round);
+
         if ($lockAll) {
-            $contestantIds = $round->event->contestants()
-                ->where('status', 'active')
-                ->pluck('id')
-                ->all();
+            $contestantIds = $activeContestantIds;
+        } else {
+            $contestantIds = array_values(array_intersect(
+                array_map('intval', $contestantIds),
+                $activeContestantIds
+            ));
         }
 
         $touched = [];
@@ -194,10 +206,11 @@ final class ScoreService
      */
     public function buildJudgeScoresMap(Judge $judge, Round $round): array
     {
-        $contestants = $round->event->contestants()->where('status', 'active')->get();
+        $contestants = $this->rosterService->getQualifiedContestants($round);
         $criteria = $round->criteria()->orderBy('sequence')->get();
         $scores = Score::where('round_id', $round->id)
             ->where('judge_id', $judge->id)
+            ->whereIn('contestant_id', $contestants->pluck('id'))
             ->get()
             ->groupBy('contestant_id');
 
