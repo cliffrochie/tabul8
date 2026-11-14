@@ -1,4 +1,12 @@
-import { Minus, Plus, Award, FileDown, Monitor } from 'lucide-react';
+import { Fragment } from 'react';
+import {
+  Minus,
+  Plus,
+  Award,
+  FileDown,
+  Monitor,
+  ShieldAlert,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +50,20 @@ export function MasterLeaderboard({
   const activeJudges = judges.filter((j) => j.is_active);
   const strategy = activeRound?.scoring_strategy ?? 'weighted';
   const isFinalized = activeRound?.status === 'finalized';
+  const showCumulativeCol =
+    activeRound !== null &&
+    !activeRound.is_back_to_zero &&
+    activeRound.sequence > 1;
+
+  const hasCutoffTie = (() => {
+    if (!activeRound) return false;
+    const k = activeRound.advancement_count;
+    if (k <= 0 || leaderboard.length <= k) return false;
+    const sorted = [...leaderboard].sort((a, b) => a.final_rank - b.final_rank);
+    return sorted[k - 1]?.final_rank === sorted[k]?.final_rank;
+  })();
+
+  const totalColumns = 6 + activeJudges.length + (showCumulativeCol ? 1 : 0);
 
   return (
     <Card>
@@ -86,7 +108,23 @@ export function MasterLeaderboard({
         </div>
       </CardHeader>
 
-      <CardContent className="overflow-x-auto">
+      <CardContent className="overflow-x-auto space-y-4">
+        {hasCutoffTie && activeRound && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <div>
+              <strong className="font-semibold">
+                TIE_AT_CUTOFF_ALERT · Top {activeRound.advancement_count}{' '}
+                Advancement Boundary
+              </strong>{' '}
+              — Contestants remain tied across Rank #
+              {activeRound.advancement_count} after tie-breakers. Use{' '}
+              <strong>Finalize Top {activeRound.advancement_count}</strong> to
+              resolve qualifiers or record a committee wildcard override.
+            </div>
+          </div>
+        )}
+
         {!activeRound || leaderboard.length === 0 ? (
           <p className="py-6 text-center text-sm text-slate-500">
             No computed results yet for this round.
@@ -114,25 +152,45 @@ export function MasterLeaderboard({
                 <th className="px-3 py-2.5 text-right font-semibold">
                   Net Composite
                 </th>
+                {showCumulativeCol && (
+                  <th className="px-3 py-2.5 text-right font-semibold">
+                    Cumulative
+                  </th>
+                )}
                 <th className="pl-3 py-2.5 text-right font-semibold">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {leaderboard.map((row) => {
+              {leaderboard.map((row, idx) => {
                 const contestant = contestantMap.get(row.contestant_id);
                 const breakdownByJudge = new Map(
                   row.judge_breakdown_snapshot.map((b) => [b.judge_id, b]),
                 );
+                const prevRow = idx > 0 ? leaderboard[idx - 1] : null;
+                const showCutoffDivider =
+                  prevRow !== null && prevRow.is_qualified && !row.is_qualified;
 
                 return (
-                  <tr
-                    key={row.contestant_id}
-                    className={
-                      row.is_qualified
-                        ? 'bg-emerald-50/30 hover:bg-emerald-50/60'
-                        : 'hover:bg-slate-50/70'
-                    }
-                  >
+                  <Fragment key={row.contestant_id}>
+                    {showCutoffDivider && (
+                      <tr className="bg-amber-50/80">
+                        <td
+                          colSpan={totalColumns}
+                          className="border-y-2 border-dashed border-amber-400 px-3 py-1.5 text-center text-[11px] font-bold uppercase tracking-widest text-amber-800"
+                        >
+                          ▲ Advancing to Next Round (Top{' '}
+                          {activeRound.advancement_count}) · Eliminated Below
+                          Cutoff ▼
+                        </td>
+                      </tr>
+                    )}
+                    <tr
+                      className={
+                        row.is_qualified
+                          ? 'bg-emerald-50/30 hover:bg-emerald-50/60'
+                          : 'hover:bg-slate-50/70'
+                      }
+                    >
                     <td className="py-3 pr-3">
                       <div className="flex items-center gap-1.5">
                         <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
@@ -267,6 +325,14 @@ export function MasterLeaderboard({
                       {row.net_composite.toFixed(2)}
                     </td>
 
+                    {showCumulativeCol && (
+                      <td className="px-3 py-3 text-right font-bold tabular-nums text-indigo-700">
+                        {row.cumulative_score !== null
+                          ? row.cumulative_score.toFixed(2)
+                          : '—'}
+                      </td>
+                    )}
+
                     <td className="pl-3 py-3 text-right">
                       {row.is_qualified ? (
                         <Badge variant="success" className="gap-1">
@@ -278,6 +344,7 @@ export function MasterLeaderboard({
                       )}
                     </td>
                   </tr>
+                  </Fragment>
                 );
               })}
             </tbody>

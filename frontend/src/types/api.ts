@@ -27,6 +27,11 @@ export interface PaginatedResponse<T> {
 export type ScoringStrategy = 'weighted' | 'ordinal' | 'trimmed';
 export type ScoreSheetStatus = 'DRAFT' | 'LOCKED' | 'UNLOCK_REQUESTED';
 export type LedMode = 'on_stage' | 'criteria' | 'reveal';
+export type CutoffMode = 'top_n_advance' | 'eliminate_n';
+export type QualificationMethod =
+  | 'INITIAL_ROSTER'
+  | 'AUTO_TOP_N'
+  | 'MANUAL_WILDCARD';
 
 export interface CriterionDto {
   id: number;
@@ -49,7 +54,9 @@ export interface RoundDto {
   scoring_strategy: ScoringStrategy;
   weight_in_overall: number;
   is_back_to_zero: boolean;
+  cutoff_mode?: CutoffMode;
   advancement_count: number;
+  eliminate_count?: number;
   status: 'upcoming' | 'active' | 'locked' | 'finalized';
   is_locked: boolean;
   criteria?: CriterionDto[];
@@ -66,6 +73,20 @@ export interface ContestantDto {
   asset_ratio: 'PORTRAIT_4:5' | 'PHOTO_300x300' | 'WIDE_16:9';
   status: 'active' | 'eliminated' | 'withdrawn';
   photo_url: string | null;
+  is_qualified_in_active_round?: boolean;
+  qualified_from_rank?: number | null;
+  qualification_method?: QualificationMethod | null;
+  eliminated_in_round_name?: string | null;
+}
+
+export interface RoundFunnelStep {
+  round_id: number;
+  sequence: number;
+  name: string;
+  status: 'upcoming' | 'active' | 'locked' | 'finalized';
+  starting_count: number;
+  eliminate_count: number;
+  advancement_count: number;
 }
 
 export interface JudgeDto {
@@ -139,6 +160,7 @@ export interface EventStatePayload {
   event: EventDto;
   rounds: RoundDto[];
   active_round: RoundDto | null;
+  round_funnel?: RoundFunnelStep[];
   contestants: ContestantDto[];
   my_scores?: Record<string, JudgeScoreSheet>;
   judges?: JudgeDto[];

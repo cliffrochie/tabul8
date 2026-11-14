@@ -27,7 +27,7 @@ interface StageControlCardsProps {
   isSyncing: boolean;
   isFinalizing: boolean;
   onSyncStage: (payload: StageSyncPayload) => void;
-  onFinalizeRound: (roundId: number) => void;
+  onOpenFinalizeModal: (roundId: number) => void;
 }
 
 const STRATEGIES: { value: ScoringStrategy; label: string; hint: string }[] = [
@@ -52,9 +52,12 @@ export function StageControlCards({
   isSyncing,
   isFinalizing,
   onSyncStage,
-  onFinalizeRound,
+  onOpenFinalizeModal,
 }: StageControlCardsProps) {
-  const activeContestants = contestants.filter((c) => c.status === 'active');
+  const activeContestants = contestants.filter(
+    (c) => c.status === 'active' && c.is_qualified_in_active_round !== false,
+  );
+  const revealedIds = event.revealed_contestant_ids ?? [];
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -212,6 +215,42 @@ export function StageControlCards({
               </Button>
             ))}
           </div>
+          {event.led_mode === 'reveal' && activeContestants.length > 0 && (
+            <div className="space-y-1.5 border-t border-slate-100 pt-2">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                LED Reveal Spotlight ({revealedIds.length} visible)
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {activeContestants.map((c) => {
+                  const isRevealed = revealedIds.includes(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      disabled={isSyncing}
+                      onClick={() => {
+                        const next = isRevealed
+                          ? revealedIds.filter((id) => id !== c.id)
+                          : [...revealedIds, c.id];
+                        onSyncStage({
+                          event_id: event.id,
+                          led_mode: 'reveal',
+                          revealed_contestant_ids: next,
+                        });
+                      }}
+                      className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                        isRevealed
+                          ? 'border-amber-400 bg-amber-100 text-amber-900'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      #{c.candidate_number} {c.name.split(' ')[0]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -271,7 +310,7 @@ export function StageControlCards({
               }
               onClick={() => {
                 if (!activeRound) return;
-                onFinalizeRound(activeRound.id);
+                onOpenFinalizeModal(activeRound.id);
               }}
             >
               {activeRound?.status === 'finalized' ? (

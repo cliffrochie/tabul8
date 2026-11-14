@@ -1,11 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ConsoleLayout } from '@/components/layouts/ConsoleLayout';
 import {
   downloadTallyPdf,
+  FinalizeRoundModal,
   LiveSubmissionMatrix,
   MasterLeaderboard,
+  MultiRoundPipelineStepper,
   StageControlCards,
   useAdminEventState,
   useAdminMutations,
@@ -14,15 +16,25 @@ import {
 export function TabulatorConsolePage() {
   const [searchParams] = useSearchParams();
   const eventId = Number(searchParams.get('eventId')) || 1;
+  const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false);
 
   const { data: state, isLoading, isError, onlineJudgeIds } =
     useAdminEventState(eventId);
-  const { resolveUnlock, applyDeduction, syncStage, finalizeRound } =
-    useAdminMutations(eventId, state?.active_round?.id);
+  const {
+    resolveUnlock,
+    applyDeduction,
+    syncStage,
+    finalizeRound,
+    reopenRound,
+    excludeJudge,
+  } = useAdminMutations(eventId, state?.active_round?.id);
 
   const judges = state?.judges ?? [];
   const activeJudgesCount = judges.filter((j) => j.is_active).length;
-  const scoresMatrix = state?.scores_matrix ?? {};
+  const scoresMatrix = useMemo(
+    () => state?.scores_matrix ?? {},
+    [state?.scores_matrix],
+  );
 
   const unlockRequestCount = useMemo(() => {
     let count = 0;
@@ -57,6 +69,11 @@ export function TabulatorConsolePage() {
     );
   }
 
+  const activeRound = state.active_round;
+  const hasNextRound =
+    activeRound !== null &&
+    state.rounds.some((r) => r.sequence > activeRound.sequence);
+
   return (
     <ConsoleLayout
       eventTitle={state.event.title}
@@ -65,6 +82,21 @@ export function TabulatorConsolePage() {
       totalJudgesCount={activeJudgesCount}
     >
       <div className="space-y-6">
+        <MultiRoundPipelineStepper
+          rounds={state.rounds}
+          roundFunnel={state.round_funnel ?? []}
+          activeRoundId={state.active_round?.id ?? null}
+          isSyncing={syncStage.isPending}
+          isReopening={reopenRound.isPending}
+          onSelectRound={(roundId) =>
+            syncStage.mutate({
+              event_id: state.event.id,
+              active_round_id: roundId,
+            })
+          }
+          onReopenRound={(roundId) => reopenRound.mutate({ roundId })}
+        />
+
         <StageControlCards
           event={state.event}
           rounds={state.rounds}
@@ -75,7 +107,7 @@ export function TabulatorConsolePage() {
           isSyncing={syncStage.isPending}
           isFinalizing={finalizeRound.isPending}
           onSyncStage={(payload) => syncStage.mutate(payload)}
-          onFinalizeRound={(roundId) => finalizeRound.mutate(roundId)}
+          onOpenFinalizeModal={() => setIsFinalizeModalOpen(true)}
         />
 
         <LiveSubmissionMatrix
@@ -102,6 +134,26 @@ export function TabulatorConsolePage() {
           }}
         />
       </div>
+
+      {isFinalizeModalOpen && activeRound && (
+        <FinalizeRoundModal
+          key={activeRound.id}
+          isOpen={isFinalizeModalOpen}
+          round={activeRound}
+          hasNextRound={hasNextRound}
+          contestants={state.contestants}
+          judges={judges}
+          scoresMatrix={scoresMatrix}
+          leaderboard={state.leaderboard ?? []}
+          isFinalizing={finalizeRound.isPending}
+          isExcludingJudge={excludeJudge.isPending}
+          onClose={() => setIsFinalizeModalOpen(false)}
+          onExcludeJudge={(payload) => excludeJudge.mutate(payload)}
+          onConfirmFinalize={async (payload) => {
+            await finalizeRound.mutateAsync(payload);
+          }}
+        />
+      )}
     </ConsoleLayout>
   );
 }

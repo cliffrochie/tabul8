@@ -53,6 +53,25 @@ export interface StageSyncPayload {
   revealed_contestant_ids?: number[];
 }
 
+export interface FinalizeRoundPayload {
+  roundId?: number;
+  activate_next_round?: boolean;
+  push_to_led_reveal?: boolean;
+  qualified_contestant_ids?: number[];
+  override_reason?: string | null;
+}
+
+export interface ReopenRoundPayload {
+  roundId: number;
+  reason?: string;
+}
+
+export interface ExcludeJudgePayload {
+  roundId: number;
+  judgeId: number;
+  reason: string;
+}
+
 export function adminEventQueryKey(eventId: number) {
   return ['admin-event-state', eventId] as const;
 }
@@ -212,11 +231,27 @@ export function useAdminMutations(eventId: number, roundId?: number) {
   });
 
   const finalizeRound = useMutation({
-    mutationFn: async (targetRoundId?: number) => {
-      const id = targetRoundId ?? roundId;
+    mutationFn: async (input?: FinalizeRoundPayload | number) => {
+      const payload: FinalizeRoundPayload =
+        typeof input === 'number' ? { roundId: input } : (input ?? {});
+      const id = payload.roundId ?? roundId;
       if (!id) throw new Error('No active round');
+      const body: Record<string, unknown> = {};
+      if (payload.activate_next_round !== undefined) {
+        body.activate_next_round = payload.activate_next_round;
+      }
+      if (payload.push_to_led_reveal !== undefined) {
+        body.push_to_led_reveal = payload.push_to_led_reveal;
+      }
+      if (payload.qualified_contestant_ids !== undefined) {
+        body.qualified_contestant_ids = payload.qualified_contestant_ids;
+      }
+      if (payload.override_reason !== undefined) {
+        body.override_reason = payload.override_reason;
+      }
       const { data } = await apiClient.post<ApiResponse<unknown>>(
         `/admin/rounds/${id}/finalize`,
+        body,
       );
       return data;
     },
@@ -232,11 +267,58 @@ export function useAdminMutations(eventId: number, roundId?: number) {
     },
   });
 
+  const reopenRound = useMutation({
+    mutationFn: async ({ roundId: targetId, reason }: ReopenRoundPayload) => {
+      const { data } = await apiClient.post<ApiResponse<unknown>>(
+        `/admin/rounds/${targetId}/reopen`,
+        reason ? { reason } : {},
+      );
+      return data;
+    },
+    onSuccess: () => {
+      toast.success('Finalized round reopened');
+      void invalidate();
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ?? 'Cannot reopen round once next-round scores are locked';
+      toast.error(msg);
+    },
+  });
+
+  const excludeJudge = useMutation({
+    mutationFn: async ({
+      roundId: targetRoundId,
+      judgeId,
+      reason,
+    }: ExcludeJudgePayload) => {
+      const { data } = await apiClient.post<
+        ApiResponse<{ leaderboard: RoundResultDto[] }>
+      >(`/admin/rounds/${targetRoundId}/judges/${judgeId}/exclude`, {
+        reason,
+      });
+      return data.data;
+    },
+    onSuccess: () => {
+      toast.success('Judge excluded from active panel');
+      void invalidate();
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ?? 'Failed to exclude judge';
+      toast.error(msg);
+    },
+  });
+
   return {
     resolveUnlock,
     applyDeduction,
     syncStage,
     finalizeRound,
+    reopenRound,
+    excludeJudge,
   };
 }
 

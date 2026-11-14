@@ -33,8 +33,20 @@ export function LiveSubmissionMatrix({
   isResolving,
   onResolveUnlock,
 }: LiveSubmissionMatrixProps) {
-  const activeContestants = contestants.filter((c) => c.status === 'active');
+  const activeContestants = contestants.filter(
+    (c) => c.status === 'active' && c.is_qualified_in_active_round !== false,
+  );
   const activeJudges = judges.filter((j) => j.is_active);
+  const totalCells = activeContestants.length * activeJudges.length;
+  let lockedCells = 0;
+  for (const c of activeContestants) {
+    const row = scoresMatrix[String(c.id)] ?? {};
+    for (const j of activeJudges) {
+      if (row[String(j.id)]?.status === 'LOCKED') {
+        lockedCells += 1;
+      }
+    }
+  }
 
   return (
     <Card>
@@ -50,6 +62,15 @@ export function LiveSubmissionMatrix({
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge
+              variant={
+                totalCells > 0 && lockedCells === totalCells
+                  ? 'success'
+                  : 'info'
+              }
+            >
+              Quorum: {lockedCells} / {totalCells} Sheets Locked
+            </Badge>
             <Badge variant="success">LOCKED</Badge>
             <Badge variant="default">DRAFT</Badge>
             <Badge variant="warning">UNLOCK REQUESTED</Badge>
