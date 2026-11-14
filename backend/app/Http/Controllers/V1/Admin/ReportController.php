@@ -4,11 +4,11 @@ namespace App\Http\Controllers\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Round;
-use App\Models\User;
 use App\Services\Scoring\ScoringEngineService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Gate;
 
 final class ReportController extends Controller
 {
@@ -18,9 +18,11 @@ final class ReportController extends Controller
         ScoringEngineService $scoringEngine
     ): Response {
         $actor = $request->user();
-        if (! $actor instanceof User) {
-            abort(403, 'Only authorized tabulation staff can export official tally sheets.');
+        if ($actor === null) {
+            abort(403, 'Authentication required.');
         }
+
+        Gate::forUser($actor)->authorize('exportTally', $round);
 
         $round->loadMissing('event', 'criteria');
         $event = $round->event;

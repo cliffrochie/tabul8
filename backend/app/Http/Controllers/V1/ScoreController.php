@@ -11,6 +11,7 @@ use App\Models\Judge;
 use App\Models\Round;
 use App\Services\ScoreService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Gate;
 
 final class ScoreController extends Controller
 {
@@ -20,6 +21,7 @@ final class ScoreController extends Controller
         $judge = $request->user();
         $validated = $request->validated();
         $round = Round::findOrFail($validated['round_id']);
+        Gate::forUser($judge)->authorize('mutateRound', $round);
 
         $result = $scoreService->upsertBatch(
             $judge,
@@ -40,6 +42,7 @@ final class ScoreController extends Controller
         $judge = $request->user();
         $validated = $request->validated();
         $round = Round::findOrFail($validated['round_id']);
+        Gate::forUser($judge)->authorize('mutateRound', $round);
 
         $myScores = $scoreService->lockSheets(
             $judge,
@@ -58,6 +61,7 @@ final class ScoreController extends Controller
         $judge = $request->user();
         $validated = $request->validated();
         $round = Round::findOrFail($validated['round_id']);
+        Gate::forUser($judge)->authorize('mutateRound', $round);
 
         $myScores = $scoreService->requestUnlock(
             $judge,

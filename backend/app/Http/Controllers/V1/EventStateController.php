@@ -19,6 +19,7 @@ use App\Services\ScoreService;
 use App\Services\Scoring\ScoringEngineService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 final class EventStateController extends Controller
 {
@@ -30,6 +31,12 @@ final class EventStateController extends Controller
         RoundRosterService $rosterService
     ): JsonResponse {
         $actor = $request->user();
+        if (! $request->is('api/v1/display/*')) {
+            if ($actor === null) {
+                abort(403, 'Authentication required.');
+            }
+            Gate::forUser($actor)->authorize('viewState', $event);
+        }
 
         $activeRound = $event->active_round_id
             ? Round::with('criteria')->find($event->active_round_id)
