@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\V1\Admin\AdminScoreController;
 use App\Http\Controllers\V1\Admin\DeductionController;
+use App\Http\Controllers\V1\Admin\EventCrudController;
 use App\Http\Controllers\V1\Admin\ReportController;
 use App\Http\Controllers\V1\Admin\RoundControlController;
 use App\Http\Controllers\V1\Admin\StageSyncController;
@@ -33,6 +34,12 @@ Route::prefix('v1')->group(function (): void {
 
         // Tabulator / Admin Console Controls
         Route::prefix('admin')->group(function (): void {
+            Route::get('/events', [EventCrudController::class, 'index']);
+            Route::post('/events', [EventCrudController::class, 'store']);
+            Route::put('/events/{event}', [EventCrudController::class, 'update']);
+            Route::delete('/events/{event}', [EventCrudController::class, 'destroy']);
+            Route::get('/events/{event}/preflight', [EventCrudController::class, 'preflight']);
+
             Route::post('/scores/resolve-unlock', [AdminScoreController::class, 'resolveUnlock']);
             Route::post('/deductions', [DeductionController::class, 'store']);
             Route::post('/stage-sync', [StageSyncController::class, 'push']);
