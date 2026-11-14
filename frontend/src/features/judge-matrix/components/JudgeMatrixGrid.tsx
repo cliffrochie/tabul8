@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
@@ -27,6 +28,30 @@ export function JudgeMatrixGrid({
   onLockAll,
   onRequestUnlock,
 }: JudgeMatrixGridProps) {
+  const [confirmingLockAll, setConfirmingLockAll] = useState(false);
+
+  const activeQualifiers = contestants.filter(
+    (c) => c.status === 'active' && c.is_qualified_in_active_round !== false,
+  );
+
+  const hasMinScoreDrafts = activeQualifiers.some((c) => {
+    const sheet = myScores?.[String(c.id)];
+    const status = sheet?.status ?? 'DRAFT';
+    if (status !== 'DRAFT') return false;
+    return criteria.some((crit) => {
+      const val = sheet?.criteria?.[String(crit.id)] ?? crit.min_score;
+      return val <= crit.min_score;
+    });
+  });
+
+  const handleLockAllClick = () => {
+    if (hasMinScoreDrafts) {
+      setConfirmingLockAll(true);
+      return;
+    }
+    onLockAll();
+  };
+
   return (
     <Card className="overflow-hidden">
       <CardHeader className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 text-white">
@@ -39,12 +64,41 @@ export function JudgeMatrixGrid({
         <Button
           variant="secondary"
           size="sm"
-          disabled={isRoundFrozen}
-          onClick={onLockAll}
+          disabled={isRoundFrozen || activeQualifiers.length === 0}
+          onClick={handleLockAllClick}
         >
           Lock & Submit Entire Round Sheet
         </Button>
       </CardHeader>
+
+      {confirmingLockAll && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950">
+          <span className="font-medium">
+            Some draft score sheets still have criteria at the minimum score.
+            Lock all {activeQualifiers.length} qualifiers anyway?
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmingLockAll(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setConfirmingLockAll(false);
+                onLockAll();
+              }}
+            >
+              Confirm Lock All
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse text-sm">
@@ -61,12 +115,12 @@ export function JudgeMatrixGrid({
                 </th>
               ))}
               <th className="py-3 px-4 text-center w-28">Weighted</th>
-              <th className="py-3 px-4 text-center w-28">Rank</th>
+              <th className="py-3 px-4 text-center w-32">Rank</th>
               <th className="py-3 px-4 text-center w-36">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {contestants.map((c) => {
+            {activeQualifiers.map((c) => {
               const sheet = myScores?.[String(c.id)];
               const status = sheet?.status ?? 'DRAFT';
               const isLocked = status === 'LOCKED' || status === 'UNLOCK_REQUESTED' || isRoundFrozen;
@@ -77,7 +131,20 @@ export function JudgeMatrixGrid({
                     #{c.candidate_number}
                   </td>
                   <td className="py-3 px-4">
-                    <div className="font-semibold text-slate-900">{c.name}</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-semibold text-slate-900">{c.name}</span>
+                      {c.qualification_method === 'MANUAL_WILDCARD' && (
+                        <Badge variant="warning" className="text-[10px]">
+                          Wildcard
+                        </Badge>
+                      )}
+                      {c.qualified_from_rank !== null &&
+                        c.qualified_from_rank !== undefined && (
+                          <Badge variant="info" className="text-[10px]">
+                            Qualified #{c.qualified_from_rank}
+                          </Badge>
+                        )}
+                    </div>
                     <div className="text-xs text-slate-500">{c.origin_or_group}</div>
                   </td>
 
@@ -132,7 +199,7 @@ export function JudgeMatrixGrid({
                   </td>
                   <td className="py-3 px-4 text-center tabular-nums">
                     <Badge variant={sheet?.personal_rank === 1 ? 'default' : 'secondary'}>
-                      #{sheet?.personal_rank ?? '—'}
+                      #{sheet?.personal_rank ?? '—'} of {activeQualifiers.length}
                       {sheet?.is_tied ? ' (T)' : ''}
                     </Badge>
                   </td>

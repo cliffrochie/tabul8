@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from 'react';
 import { JudgeLayout } from '@/components/layouts/JudgeLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -5,7 +6,9 @@ import { Card } from '@/components/ui/card';
 import {
   ContestantRoster,
   CriterionScoreCard,
+  EliminatedRosterDrawer,
   PerformerCard,
+  RoundStageBanner,
   useEventState,
   useOfflineAutoFlush,
   useScoreMutations,
@@ -22,6 +25,32 @@ export function JudgeStagePage() {
   const { flushQueue } = useOfflineAutoFlush(eventId, round?.id);
   const { upsertScore, lockSheets, requestUnlock } = useScoreMutations(eventId ?? 0, round?.id ?? 0);
 
+  const activeQualifiers = useMemo(
+    () =>
+      (state?.contestants ?? []).filter(
+        (c) =>
+          c.status === 'active' && c.is_qualified_in_active_round !== false,
+      ),
+    [state?.contestants],
+  );
+
+  const eliminatedContestants = useMemo(
+    () =>
+      (state?.contestants ?? []).filter(
+        (c) => c.is_qualified_in_active_round === false,
+      ),
+    [state?.contestants],
+  );
+
+  useEffect(() => {
+    if (
+      activeQualifiers.length > 0 &&
+      !activeQualifiers.some((c) => c.id === selectedContestantId)
+    ) {
+      setSelectedContestantId(activeQualifiers[0].id);
+    }
+  }, [activeQualifiers, selectedContestantId, setSelectedContestantId]);
+
   if (isLoading || !state || !round) {
     return (
       <JudgeLayout>
@@ -31,14 +60,20 @@ export function JudgeStagePage() {
   }
 
   const activeContestant =
-    state.contestants.find((c) => c.id === selectedContestantId) ??
-    state.contestants.find((c) => c.id === state.event.on_stage_contestant_id) ??
-    state.contestants[0];
+    activeQualifiers.find((c) => c.id === selectedContestantId) ??
+    activeQualifiers.find((c) => c.id === state.event.on_stage_contestant_id) ??
+    activeQualifiers[0];
 
   if (!activeContestant) {
     return (
       <JudgeLayout eventTitle={state.event.title} onFlushQueue={flushQueue}>
-        <div className="py-16 text-center text-sm text-slate-500">No active contestants found.</div>
+        <RoundStageBanner
+          round={round}
+          totalRounds={state.rounds.length}
+          activeQualifierCount={0}
+        />
+        <div className="py-16 text-center text-sm text-slate-500">No active qualifiers found for this round.</div>
+        <EliminatedRosterDrawer contestants={eliminatedContestants} />
       </JudgeLayout>
     );
   }
@@ -50,6 +85,12 @@ export function JudgeStagePage() {
 
   return (
     <JudgeLayout eventTitle={state.event.title} onFlushQueue={flushQueue}>
+      <RoundStageBanner
+        round={round}
+        totalRounds={state.rounds.length}
+        activeQualifierCount={activeQualifiers.length}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-4 flex flex-col gap-5">
           <PerformerCard
@@ -58,12 +99,13 @@ export function JudgeStagePage() {
             sheet={sheet}
           />
           <ContestantRoster
-            contestants={state.contestants}
+            contestants={activeQualifiers}
             selectedId={activeContestant.id}
             onStageId={state.event.on_stage_contestant_id}
             myScores={state.my_scores}
             onSelect={setSelectedContestantId}
           />
+          <EliminatedRosterDrawer contestants={eliminatedContestants} />
         </div>
 
         <div className="lg:col-span-8 flex flex-col">
@@ -118,7 +160,7 @@ export function JudgeStagePage() {
                     Personal Rank
                   </span>
                   <span className="text-lg font-semibold">
-                    #{sheet?.personal_rank ?? '—'} of {state.contestants.length}
+                    #{sheet?.personal_rank ?? '—'} of {activeQualifiers.length}
                   </span>
                 </div>
               </div>

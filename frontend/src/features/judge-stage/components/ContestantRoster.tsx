@@ -58,9 +58,15 @@ export function ContestantRoster({
                         Stage
                       </Badge>
                     )}
+                    {c.qualification_method === 'MANUAL_WILDCARD' && (
+                      <Badge variant="warning" className="text-[10px]">
+                        Wildcard
+                      </Badge>
+                    )}
                   </div>
                   <div className={cn('text-xs truncate', isSelected ? 'text-slate-300' : 'text-slate-500')}>
                     {c.origin_or_group}
+                    {c.qualified_from_rank ? ` · Prev #${c.qualified_from_rank}` : ''}
                   </div>
                 </div>
               </div>

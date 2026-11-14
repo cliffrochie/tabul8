@@ -44,6 +44,23 @@ export function PerformerCard({ contestant, isOnStage, sheet }: PerformerCardPro
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-bold text-slate-900 truncate">{contestant.name}</h2>
             <p className="text-xs text-slate-500 mt-0.5">{contestant.origin_or_group}</p>
+            {(contestant.qualification_method === 'MANUAL_WILDCARD' ||
+              contestant.qualified_from_rank !== null &&
+              contestant.qualified_from_rank !== undefined) && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {contestant.qualified_from_rank !== null &&
+                  contestant.qualified_from_rank !== undefined && (
+                    <Badge variant="info" className="text-[10px]">
+                      Qualified Rank #{contestant.qualified_from_rank}
+                    </Badge>
+                  )}
+                {contestant.qualification_method === 'MANUAL_WILDCARD' && (
+                  <Badge variant="warning" className="text-[10px]">
+                    Wildcard
+                  </Badge>
+                )}
+              </div>
+            )}
             {contestant.performance_meta && (
               <div className="mt-2 rounded-md bg-slate-50 border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 truncate">
                 {contestant.performance_meta}

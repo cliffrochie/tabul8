@@ -1,6 +1,12 @@
 import { JudgeLayout } from '@/components/layouts/JudgeLayout';
 import { JudgeMatrixGrid } from '@/features/judge-matrix';
-import { useEventState, useOfflineAutoFlush, useScoreMutations } from '@/features/judge-stage';
+import {
+  EliminatedRosterDrawer,
+  RoundStageBanner,
+  useEventState,
+  useOfflineAutoFlush,
+  useScoreMutations,
+} from '@/features/judge-stage';
 import { useAuthStore } from '@/stores/authStore';
 
 export function JudgeMatrixPage() {
@@ -19,12 +25,24 @@ export function JudgeMatrixPage() {
     );
   }
 
+  const activeQualifiers = state.contestants.filter(
+    (c) => c.status === 'active' && c.is_qualified_in_active_round !== false,
+  );
+  const eliminatedContestants = state.contestants.filter(
+    (c) => c.is_qualified_in_active_round === false,
+  );
+
   return (
     <JudgeLayout eventTitle={state.event.title} onFlushQueue={flushQueue}>
+      <RoundStageBanner
+        round={round}
+        totalRounds={state.rounds.length}
+        activeQualifierCount={activeQualifiers.length}
+      />
       <JudgeMatrixGrid
         roundName={round.name}
         isRoundFrozen={round.is_locked}
-        contestants={state.contestants}
+        contestants={activeQualifiers}
         criteria={round.criteria ?? []}
         myScores={state.my_scores}
         onScoreChange={(contestantId, criterionId, nextVal) =>
@@ -34,6 +52,7 @@ export function JudgeMatrixPage() {
         onLockAll={() => lockSheets.mutate({ lockAll: true })}
         onRequestUnlock={(contestantId) => requestUnlock.mutate({ contestantId })}
       />
+      <EliminatedRosterDrawer contestants={eliminatedContestants} />
     </JudgeLayout>
   );
 }
