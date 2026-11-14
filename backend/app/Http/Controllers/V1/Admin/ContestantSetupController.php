@@ -14,6 +14,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -193,6 +194,8 @@ final class ContestantSetupController extends Controller
         if ($actor === null) {
             abort(403, 'Authentication required.');
         }
+
+        Gate::forUser($actor)->authorize('viewState', $event);
 
         return $this->streamContestantPhoto($event, $contestant);
     }

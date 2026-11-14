@@ -161,3 +161,77 @@ it('blocks mc_stage from exporting official tally PDF and restricts auditor to r
     $this->postJson("/api/v1/admin/rounds/{$data['round2']->id}/finalize", [])
         ->assertStatus(403);
 });
+
+it('blocks cross-event photo access, mc_stage scoring overrides, and cross-event ID references', function () {
+    $data = seedCrossEventScenario();
+
+    $round1 = Round::create([
+        'event_id' => $data['event1']->id,
+        'name' => 'Event One Prelim',
+        'sequence' => 1,
+        'scoring_strategy' => 'weighted',
+        'weight_in_overall' => 100,
+        'is_back_to_zero' => true,
+        'cutoff_mode' => 'top_n_advance',
+        'advancement_count' => 1,
+        'eliminate_count' => 0,
+        'status' => 'active',
+        'is_locked' => false,
+    ]);
+
+    // Judge from Event 1 cannot fetch private portrait photo for Event 2
+    Sanctum::actingAs($data['judge1'], ['role:judge']);
+    $this->get("/api/v1/events/{$data['event2']->id}/contestants/{$data['contestant2']->id}/photo")
+        ->assertStatus(403);
+
+    // mc_stage can cue on-stage contestant / LED mode on same event, NOT mutate active_round_id / is_round_frozen / cross-event
+    $mcUser = User::factory()->create([
+        'email' => 'policy-mc-sync@tabul8.local',
+        'password' => Hash::make('secret123'),
+        'role' => 'mc_stage',
+        'is_active' => true,
+    ]);
+    Sanctum::actingAs($mcUser, ['role:mc_stage']);
+
+    $this->postJson('/api/v1/admin/stage-sync', [
+        'event_id' => $data['event2']->id,
+        'on_stage_contestant_id' => $data['contestant2']->id,
+        'led_mode' => 'criteria',
+    ])->assertStatus(200);
+
+    $this->postJson('/api/v1/admin/stage-sync', [
+        'event_id' => $data['event2']->id,
+        'is_round_frozen' => true,
+    ])->assertStatus(403);
+
+    $this->postJson('/api/v1/admin/stage-sync', [
+        'event_id' => $data['event2']->id,
+        'active_round_id' => $round1->id,
+    ])->assertStatus(403);
+
+    // Tabulator cannot link cross-event contestant/round/judge in stage-sync, deductions, resolve-unlock, or exclude-judge
+    Sanctum::actingAs($data['tabulator'], ['role:tabulator']);
+
+    $this->postJson('/api/v1/admin/stage-sync', [
+        'event_id' => $data['event1']->id,
+        'active_round_id' => $data['round2']->id,
+        'on_stage_contestant_id' => $data['contestant2']->id,
+    ])->assertStatus(422);
+
+    $this->postJson('/api/v1/admin/deductions', [
+        'round_id' => $round1->id,
+        'contestant_id' => $data['contestant2']->id,
+        'points_deducted' => 2.0,
+    ])->assertStatus(422);
+
+    $this->postJson('/api/v1/admin/scores/resolve-unlock', [
+        'round_id' => $data['round2']->id,
+        'contestant_id' => $data['contestant2']->id,
+        'judge_id' => $data['judge1']->id,
+        'decision' => 'APPROVE',
+    ])->assertStatus(422);
+
+    $this->postJson("/api/v1/admin/rounds/{$data['round2']->id}/judges/{$data['judge1']->id}/exclude", [
+        'reason' => 'Cross-event judge exclusion should fail',
+    ])->assertStatus(422);
+});

@@ -64,8 +64,12 @@ final class RoundControlController extends Controller
     public function excludeJudge(Request $request, Round $round, Judge $judge, AdminTabulationService $service): JsonResponse
     {
         $actor = $request->user();
-        if (! $actor instanceof User || ! in_array($actor->role, ['super_admin', 'tabulator'], true)) {
+        if (! $actor instanceof User || ! $actor->is_active || ! in_array($actor->role, ['super_admin', 'tabulator'], true)) {
             return ApiResponse::error('Forbidden.', null, 403);
+        }
+
+        if ((int) $judge->event_id !== (int) $round->event_id) {
+            return ApiResponse::error('Judge does not belong to the specified round event.', null, 422);
         }
 
         $validated = $request->validate([

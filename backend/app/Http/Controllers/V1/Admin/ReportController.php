@@ -44,17 +44,24 @@ final class ReportController extends Controller
         if ($round->status !== 'finalized' && ! $isPreview) {
             $activeJudgeIds = $judges->pluck('id');
             $qualifiedContestantIds = $contestants->pluck('id');
-            $leafCriteriaIds = $round->criteria
-                ->filter(fn ($c) => ! $round->criteria->contains('parent_id', $c->id))
-                ->pluck('id');
+            $leafCriteriaIds = $round->leafCriteria()->pluck('id');
 
             $expectedCells = $activeJudgeIds->count()
                 * $qualifiedContestantIds->count()
                 * $leafCriteriaIds->count();
 
+            if ($expectedCells <= 0) {
+                return ApiResponse::error(
+                    'Official tally PDF cannot be exported for an unpopulated round. Pass ?preview=1 for an unofficial draft preview.',
+                    ['quorum' => ['Active judges, qualified contestants, and judging criteria are required.']],
+                    409
+                );
+            }
+
             $scoreQuery = Score::where('round_id', $round->id)
                 ->whereIn('judge_id', $activeJudgeIds)
-                ->whereIn('contestant_id', $qualifiedContestantIds);
+                ->whereIn('contestant_id', $qualifiedContestantIds)
+                ->whereIn('criterion_id', $leafCriteriaIds);
 
             $hasUnlockedRows = (clone $scoreQuery)
                 ->whereIn('status', ['DRAFT', 'UNLOCK_REQUESTED'])
@@ -64,7 +71,7 @@ final class ReportController extends Controller
                 ->where('status', 'LOCKED')
                 ->count();
 
-            if ($hasUnlockedRows || ($expectedCells > 0 && $lockedCount < $expectedCells)) {
+            if ($hasUnlockedRows || $lockedCount < $expectedCells) {
                 return ApiResponse::error(
                     'Official tally PDF cannot be exported until judge quorum lock is complete. Pass ?preview=1 for an unofficial draft preview.',
                     ['quorum' => ['Not all active judges have locked scores for this round.']],
