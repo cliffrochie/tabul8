@@ -8,44 +8,42 @@ export function CriteriaMode({ activeRound }: CriteriaModeProps) {
   const criteria = (activeRound?.criteria ?? []).filter((c) => c.parent_id === null);
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-6">
-      <div className="mb-10 text-center">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-300">
-          Official Judging Criteria
-        </p>
-        <h2 className="mt-2 text-4xl font-black tracking-tight text-white sm:text-5xl">
-          {activeRound?.name ?? 'Competition Round'}
+    <div className="my-auto py-4 sm:py-8 max-w-5xl mx-auto w-full space-y-6">
+      <div className="text-center">
+        <span className="px-3 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-mono-tech text-xs font-bold">
+          PUBLIC TRANSPARENCY DISPLAY
+        </span>
+        <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-3 text-white">
+          Official Criteria for Judging — {activeRound?.name ?? 'Competition Round'}
         </h2>
       </div>
 
       {criteria.length === 0 ? (
-        <p className="text-center text-lg text-slate-400">
+        <p className="text-center text-base font-mono-tech text-slate-400">
           No criteria configured for this round.
         </p>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {criteria.map((criterion) => (
             <div
               key={criterion.id}
-              className="flex flex-col justify-between rounded-2xl border border-white/15 bg-white/5 p-7 backdrop-blur-md"
+              className="rounded-2xl p-6 bg-slate-900/90 border border-slate-700/80 text-white flex flex-col justify-between shadow-xl"
             >
               <div>
-                <div className="flex items-baseline justify-between gap-4">
-                  <h3 className="text-2xl font-bold text-white">
-                    {criterion.name}
-                  </h3>
-                  <span className="text-3xl font-black tabular-nums text-amber-300">
-                    {criterion.weight_percentage}%
-                  </span>
+                <div className="font-mono-tech text-4xl font-extrabold text-emerald-400 border-b border-slate-800 pb-3 mb-3">
+                  {criterion.weight_percentage}%
                 </div>
+                <h3 className="text-lg font-bold text-white mb-2">
+                  {criterion.name}
+                </h3>
                 {criterion.description && (
-                  <p className="mt-3 text-sm leading-relaxed text-slate-300">
+                  <p className="text-xs text-slate-300 leading-relaxed">
                     {criterion.description}
                   </p>
                 )}
               </div>
-              <div className="mt-6 border-t border-white/10 pt-3 text-xs uppercase tracking-wider text-slate-400">
-                Scale: {criterion.min_score} – {criterion.max_score} pts
+              <div className="mt-6 pt-3 border-t border-slate-800 font-mono-tech text-xs text-slate-400 font-semibold">
+                Scale Bounds: {criterion.min_score} to {criterion.max_score} pts
               </div>
             </div>
           ))}

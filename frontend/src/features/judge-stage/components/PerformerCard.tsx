@@ -1,5 +1,4 @@
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import type { ContestantDto, JudgeScoreSheet } from '@/types/api';
 
 interface PerformerCardProps {
@@ -9,69 +8,93 @@ interface PerformerCardProps {
 }
 
 export function PerformerCard({ contestant, isOnStage, sheet }: PerformerCardProps) {
+  const status = sheet?.status ?? 'DRAFT';
   const statusVariant =
-    sheet?.status === 'LOCKED'
+    status === 'LOCKED'
       ? 'success'
-      : sheet?.status === 'UNLOCK_REQUESTED'
+      : status === 'UNLOCK_REQUESTED'
         ? 'warning'
         : 'secondary';
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          Candidate #{contestant.candidate_number}
-        </span>
+    <div className="wf-box overflow-hidden">
+      <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between font-mono-tech text-xs">
+        <span className="font-bold">[WF-01] Candidate #{contestant.candidate_number}</span>
         {isOnStage ? (
-          <Badge variant="default">On Stage Now</Badge>
+          <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-slate-950 font-bold text-[10px]">
+            ON STAGE NOW
+          </span>
         ) : (
-          <Badge variant="secondary">{contestant.category}</Badge>
+          <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">
+            {contestant.category}
+          </span>
         )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-start gap-4">
-          <div className="w-20 h-24 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-medium text-slate-400 shrink-0 overflow-hidden">
-            {contestant.photo_url ? (
-              <img
-                src={contestant.photo_url}
-                alt={contestant.name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span>#{contestant.candidate_number}</span>
-            )}
+      </div>
+
+      <div className="p-4 space-y-3.5">
+        <div className="grid grid-cols-3 gap-3.5 items-start">
+          <div className="col-span-1">
+            <div className="h-28 w-full rounded-lg bg-slate-100 border border-slate-200 flex flex-col items-center justify-center text-xs font-mono-tech font-medium text-slate-400 overflow-hidden">
+              {contestant.photo_url ? (
+                <img
+                  src={contestant.photo_url}
+                  alt={contestant.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <>
+                  <span className="text-base font-bold text-slate-600">
+                    #{contestant.candidate_number}
+                  </span>
+                  <span className="text-[10px] text-slate-400 mt-0.5">4:5</span>
+                </>
+              )}
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-bold text-slate-900 truncate">{contestant.name}</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{contestant.origin_or_group}</p>
+          <div className="col-span-2 min-w-0">
+            <div className="text-[11px] font-mono-tech uppercase text-slate-400 font-semibold">
+              Candidate #{String(contestant.candidate_number).padStart(2, '0')}
+            </div>
+            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight truncate mt-0.5">
+              {contestant.name}
+            </h2>
+            <p className="text-xs text-slate-600 font-medium mt-0.5 truncate">
+              Origin: <strong className="text-slate-900">{contestant.origin_or_group}</strong>
+            </p>
             {contestant.performance_meta && (
-              <div className="mt-2 rounded-md bg-slate-50 border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 truncate">
+              <div className="mt-2.5 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-mono-tech text-slate-700 truncate">
                 {contestant.performance_meta}
               </div>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-100 text-center">
-          <div className="rounded-lg bg-slate-50 p-2">
-            <div className="text-[10px] font-medium text-slate-500 uppercase">Composite</div>
-            <div className="text-base font-bold text-slate-900 tabular-nums">
+        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-100 font-mono-tech text-center">
+          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <span className="block text-[9px] text-slate-400 uppercase font-semibold">
+              Composite
+            </span>
+            <span className="text-base font-bold text-slate-900">
               {(sheet?.weighted_total ?? 0).toFixed(2)}
-            </div>
+            </span>
           </div>
-          <div className="rounded-lg bg-slate-50 p-2">
-            <div className="text-[10px] font-medium text-slate-500 uppercase">Your Rank</div>
-            <div className="text-base font-bold text-slate-900 tabular-nums">
+          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <span className="block text-[9px] text-slate-400 uppercase font-semibold">
+              Your Rank
+            </span>
+            <span className="text-base font-bold text-slate-900">
               #{sheet?.personal_rank ?? '—'}
               {sheet?.is_tied ? ' (T)' : ''}
-            </div>
+            </span>
           </div>
-          <div className="rounded-lg bg-slate-50 p-2 flex flex-col items-center justify-center">
-            <div className="text-[10px] font-medium text-slate-500 uppercase mb-1">Status</div>
-            <Badge variant={statusVariant}>{sheet?.status ?? 'DRAFT'}</Badge>
+          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col items-center justify-center">
+            <span className="block text-[9px] text-slate-400 uppercase font-semibold mb-0.5">
+              Sheet State
+            </span>
+            <Badge variant={statusVariant}>{status}</Badge>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

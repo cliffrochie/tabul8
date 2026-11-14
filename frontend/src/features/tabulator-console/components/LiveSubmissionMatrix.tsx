@@ -1,13 +1,5 @@
-import { Check, X, Lock, Clock, AlertTriangle } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import type {
   AdminMatrixCell,
   ContestantDto,
@@ -20,6 +12,7 @@ interface LiveSubmissionMatrixProps {
   activeRound: RoundDto | null;
   contestants: ContestantDto[];
   judges: JudgeDto[];
+  onStageContestantId?: number | null;
   scoresMatrix: Record<string, Record<string, AdminMatrixCell>>;
   isResolving: boolean;
   onResolveUnlock: (payload: ResolveUnlockPayload) => void;
@@ -29,6 +22,7 @@ export function LiveSubmissionMatrix({
   activeRound,
   contestants,
   judges,
+  onStageContestantId,
   scoresMatrix,
   isResolving,
   onResolveUnlock,
@@ -37,64 +31,75 @@ export function LiveSubmissionMatrix({
   const activeJudges = judges.filter((j) => j.is_active);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <CardTitle className="text-lg">
-              WF-05 · Live Submission Matrix
-            </CardTitle>
-            <CardDescription>
-              Real-time judge lock status per contestant. Approve or reject
-              unlock requests in one click.
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="success">LOCKED</Badge>
-            <Badge variant="default">DRAFT</Badge>
-            <Badge variant="warning">UNLOCK REQUESTED</Badge>
-          </div>
+    <div className="wf-box overflow-hidden">
+      <div className="px-4 sm:px-6 py-3.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span className="font-bold font-mono-tech">
+          [WF-05] Live Submission Matrix • WebSocket Telemetry
+        </span>
+        <div className="flex items-center gap-3 text-[11px] font-mono-tech text-slate-300">
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            Locked
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-slate-400" />
+            Drafting
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-amber-400" />
+            Unlock Req
+          </span>
         </div>
-      </CardHeader>
+      </div>
 
-      <CardContent className="overflow-x-auto">
+      <div className="overflow-x-auto p-4">
         {!activeRound ? (
           <p className="py-6 text-center text-sm text-slate-500">
             Select an active round to view the submission matrix.
           </p>
         ) : (
-          <table className="w-full min-w-[680px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[680px] text-left border border-slate-200 rounded-xl overflow-hidden border-collapse">
             <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500">
-                <th className="py-2.5 pr-4 font-semibold">Contestant</th>
+              <tr className="bg-slate-100 border-b border-slate-200 text-xs">
+                <th className="py-3 px-3.5 border-r border-slate-200 font-mono-tech text-slate-700 sticky-col-left bg-slate-100">
+                  Contestant
+                </th>
                 {activeJudges.map((judge) => (
                   <th
                     key={judge.id}
-                    className="px-3 py-2.5 text-center font-semibold"
+                    className="py-3 px-3 border-r border-slate-200 text-center font-mono-tech min-w-[140px]"
                   >
-                    <div>
-                      J{judge.judge_number}
+                    <div className="font-bold text-slate-900">
+                      Judge #{judge.judge_number}
                       {judge.is_chairman ? ' (Chair)' : ''}
                     </div>
-                    <div className="text-[11px] font-normal normal-case text-slate-400">
+                    <div className="text-[10px] text-slate-500 truncate max-w-[130px] mx-auto font-sans font-normal">
                       {judge.name}
                     </div>
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {activeContestants.map((contestant) => {
                 const row = scoresMatrix[String(contestant.id)] ?? {};
+                const isOnStage = contestant.id === onStageContestantId;
+
                 return (
-                  <tr key={contestant.id} className="hover:bg-slate-50/70">
-                    <td className="py-3 pr-4">
-                      <div className="font-medium text-slate-900">
-                        #{contestant.candidate_number} {contestant.name}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {contestant.origin_or_group}
-                      </div>
+                  <tr
+                    key={contestant.id}
+                    className="border-b border-slate-200 bg-white hover:bg-slate-50/60"
+                  >
+                    <td className="py-2.5 px-3.5 border-r border-slate-200 font-semibold text-xs whitespace-nowrap sticky-col-left">
+                      <span className="font-mono-tech font-bold text-slate-500 mr-1">
+                        #{contestant.candidate_number}
+                      </span>
+                      <span className="text-slate-900 font-bold">{contestant.name}</span>
+                      {isOnStage && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono-tech text-[9px] font-bold">
+                          STAGE
+                        </span>
+                      )}
                     </td>
                     {activeJudges.map((judge) => {
                       const cell = row[String(judge.id)];
@@ -104,23 +109,39 @@ export function LiveSubmissionMatrix({
                           ? cell.weighted_total.toFixed(2)
                           : '—';
 
+                      if (status === 'LOCKED') {
+                        return (
+                          <td
+                            key={judge.id}
+                            className="py-2.5 px-2.5 border-r border-slate-200 text-center font-mono-tech"
+                          >
+                            <div className="px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50/60 flex items-center justify-between text-xs">
+                              <span className="font-bold text-emerald-900">{scoreText}</span>
+                              <span className="text-[10px] bg-white text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200 font-bold">
+                                LOCKED
+                              </span>
+                            </div>
+                          </td>
+                        );
+                      }
+
                       if (status === 'UNLOCK_REQUESTED') {
                         return (
                           <td
                             key={judge.id}
-                            className="px-2 py-2 text-center align-middle"
+                            className="py-2 px-2.5 border-r border-slate-200 text-center font-mono-tech bg-amber-50"
                           >
-                            <div className="inline-flex flex-col items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2">
-                              <div className="flex items-center gap-1 text-xs font-semibold text-amber-800">
-                                <AlertTriangle className="h-3.5 w-3.5" />
+                            <div className="p-1.5 rounded-lg border border-amber-300 bg-amber-100/70 space-y-1">
+                              <div className="flex items-center justify-between text-[10px] font-bold text-amber-900">
                                 <span>{scoreText}</span>
+                                <span>UNLOCK REQ</span>
                               </div>
                               <div className="flex items-center gap-1">
                                 <Button
                                   type="button"
                                   size="sm"
                                   disabled={isResolving}
-                                  className="h-6 bg-emerald-600 px-2 text-xs hover:bg-emerald-700"
+                                  className="h-6 flex-1 bg-slate-900 px-2 text-[10px] text-white hover:bg-slate-800"
                                   title="Approve Unlock"
                                   onClick={() =>
                                     onResolveUnlock({
@@ -131,14 +152,15 @@ export function LiveSubmissionMatrix({
                                     })
                                   }
                                 >
-                                  <Check className="h-3 w-3" />
+                                  <Check className="h-3 w-3 mr-0.5" />
+                                  Approve
                                 </Button>
                                 <Button
                                   type="button"
                                   size="sm"
                                   variant="destructive"
                                   disabled={isResolving}
-                                  className="h-6 px-2 text-xs"
+                                  className="h-6 px-2 text-[10px]"
                                   title="Reject Unlock"
                                   onClick={() =>
                                     onResolveUnlock({
@@ -157,23 +179,15 @@ export function LiveSubmissionMatrix({
                         );
                       }
 
-                      if (status === 'LOCKED') {
-                        return (
-                          <td key={judge.id} className="px-3 py-3 text-center">
-                            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                              <Lock className="h-3 w-3" />
-                              {scoreText}
-                            </span>
-                          </td>
-                        );
-                      }
-
                       return (
-                        <td key={judge.id} className="px-3 py-3 text-center">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-                            <Clock className="h-3 w-3 text-slate-400" />
-                            {scoreText}
-                          </span>
+                        <td
+                          key={judge.id}
+                          className="py-2.5 px-2.5 border-r border-slate-200 text-center font-mono-tech"
+                        >
+                          <div className="px-2.5 py-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-between text-xs text-slate-600">
+                            <span>{scoreText}</span>
+                            <span className="text-[10px] text-slate-400">DRAFT</span>
+                          </div>
                         </td>
                       );
                     })}
@@ -183,7 +197,7 @@ export function LiveSubmissionMatrix({
             </tbody>
           </table>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

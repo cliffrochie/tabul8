@@ -1,12 +1,160 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    --bg-canvas: #f8fafc;
+    --bg-subtle: #f1f5f9;
+    --surface: #ffffff;
+    --ink-primary: #0f172a;
+    --ink-secondary: #475569;
+    --ink-muted: #64748b;
+    --border-hairline: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --radius-card: 12px;
+    --radius-control: 8px;
+    --shadow-card: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 4px 12px -2px rgba(15, 23, 42, 0.03);
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    @apply bg-slate-50 text-slate-900 antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--ink-primary);
+    background-color: var(--bg-canvas);
+    background-image: radial-gradient(#cbd5e1 0.85px, transparent 0.85px);
+    background-size: 24px 24px;
+    -webkit-font-smoothing: antialiased;
   }
 
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+}
+
+.font-mono-tech {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* SaaS Card & Surface Primitives */
+.wf-box {
+  background: var(--surface);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-card);
+}
+
+.wf-box-sm {
+  background: var(--surface);
+  border: 1px solid var(--border-hairline);
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.03);
+  border-radius: 10px;
+}
+
+/* Subtle Diagonal Surface Pattern for Locked / Eliminated Rows */
+.wf-hatch {
+  background-color: #f8fafc;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(226, 232, 240, 0.45),
+    rgba(226, 232, 240, 0.45) 6px,
+    rgba(248, 250, 252, 0.45) 6px,
+    rgba(248, 250, 252, 0.45) 12px
+  );
+}
+
+/* High-Contrast Stage Broadcast Surface */
+.wf-hatch-dark {
+  background: radial-gradient(circle at top right, #1e293b 0%, #090d16 65%);
+  border-color: #1e293b;
+}
+
+/* Custom Ergonomic Touch Range Slider */
+input[type='range'].wf-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 10px;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type='range'].wf-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  background: #0f172a;
+  border: 3px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.35);
+  cursor: pointer;
+  border-radius: 9999px;
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+
+input[type='range'].wf-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.08);
+}
+
+input[type='range'].wf-slider:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+input[type='range'].wf-slider:disabled::-webkit-slider-thumb {
+  background: #94a3b8;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Clean Scrollbars & Horizontal Snap Containers */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Sticky First Column for Wide Mobile/Tablet Data Matrices */
+.sticky-col-left {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background-color: inherit;
+}
+
+@media (max-width: 767px) {
+  .wf-box {
+    border-radius: 10px;
+  }
+  input[type='text'],
+  input[type='number'],
+  input[type='email'],
+  input[type='date'],
+  select {
+    min-height: 40px;
+    font-size: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
