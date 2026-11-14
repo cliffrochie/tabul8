@@ -42,7 +42,7 @@ final class Contestant extends Model
     public function rounds(): BelongsToMany
     {
         return $this->belongsToMany(Round::class, 'round_contestants')
-            ->withPivot(['performance_order', 'qualified_from_rank'])
+            ->withPivot(['performance_order', 'qualified_from_rank', 'qualification_method', 'override_reason'])
             ->withTimestamps();
     }
 

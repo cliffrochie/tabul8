@@ -19,7 +19,9 @@ final class Round extends Model
         'scoring_strategy',
         'weight_in_overall',
         'is_back_to_zero',
+        'cutoff_mode',
         'advancement_count',
+        'eliminate_count',
         'status',
         'is_locked',
         'settings',
@@ -37,6 +39,7 @@ final class Round extends Model
             'weight_in_overall' => 'decimal:2',
             'is_back_to_zero' => 'boolean',
             'advancement_count' => 'integer',
+            'eliminate_count' => 'integer',
             'is_locked' => 'boolean',
             'settings' => 'array',
             'locked_at' => 'datetime',
@@ -57,7 +60,7 @@ final class Round extends Model
     public function contestants(): BelongsToMany
     {
         return $this->belongsToMany(Contestant::class, 'round_contestants')
-            ->withPivot(['performance_order', 'qualified_from_rank'])
+            ->withPivot(['performance_order', 'qualified_from_rank', 'qualification_method', 'override_reason'])
             ->withTimestamps()
             ->orderByPivot('performance_order');
     }
