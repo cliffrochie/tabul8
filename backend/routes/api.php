@@ -23,6 +23,7 @@ Route::prefix('v1')->group(function (): void {
 
     // Public LED Wall Read-Only State (zero raw score exposure)
     Route::get('/display/events/{event}/state', [EventStateController::class, 'show']);
+    Route::get('/display/events/{event}/contestants/{contestant}/photo', [ContestantSetupController::class, 'showDisplayPhoto']);
 
     // Authenticated Routes (Sanctum Bearer Token)
     Route::middleware('auth:sanctum')->group(function (): void {

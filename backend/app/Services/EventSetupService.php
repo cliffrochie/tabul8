@@ -469,9 +469,7 @@ final class EventSetupService
      */
     public function updateRound(Round $round, array $data): Round
     {
-        if ($round->status === 'finalized') {
-            throw new ConflictHttpException('Finalized rounds cannot be edited unless reopened.');
-        }
+        $this->assertRoundMutable($round);
 
         $entering = $this->estimateEnteringPool($round->event, $round->sequence);
         $cutoffMode = $data['cutoff_mode'] ?? $round->cutoff_mode ?? 'top_n_advance';
@@ -565,6 +563,48 @@ final class EventSetupService
             $runningEntering = $startingPool;
             $created = collect();
 
+            $segmentStart = 1;
+            $specs = [];
+            for ($i = 1; $i <= $roundCount; $i++) {
+                $isLast = $i === $roundCount;
+                $isReset = $i === 1 ? true : ($isLast ? $finalBackToZero : false);
+                $specs[$i] = [
+                    'is_last' => $isLast,
+                    'is_reset' => $isReset,
+                    'weight' => 100.00,
+                ];
+            }
+
+            // Compute contiguous cumulative segments & assign weights summing to 100.00%
+            $segments = [];
+            $cur = [];
+            for ($i = 1; $i <= $roundCount; $i++) {
+                if ($specs[$i]['is_reset'] && $cur !== []) {
+                    $segments[] = $cur;
+                    $cur = [];
+                }
+                $cur[] = $i;
+            }
+            if ($cur !== []) {
+                $segments[] = $cur;
+            }
+            foreach ($segments as $seg) {
+                $len = count($seg);
+                if ($len <= 1) {
+                    continue;
+                }
+                $base = round(100.0 / $len, 2);
+                $allocated = 0.0;
+                foreach ($seg as $pos => $idxKey) {
+                    if ($pos === $len - 1) {
+                        $specs[$idxKey]['weight'] = round(100.0 - $allocated, 2);
+                    } else {
+                        $specs[$idxKey]['weight'] = $base;
+                        $allocated = round($allocated + $base, 2);
+                    }
+                }
+            }
+
             for ($i = 1; $i <= $roundCount; $i++) {
                 $advancement = $i === $roundCount
                     ? $finalWinnersCount
@@ -572,7 +612,7 @@ final class EventSetupService
                 $advancement = min($runningEntering, $advancement);
                 $eliminate = max(0, $runningEntering - $advancement);
 
-                $isLast = $i === $roundCount;
+                $isLast = $specs[$i]['is_last'];
                 $name = $roundCount === 1
                     ? 'Grand Finals'
                     : ($i === 1 ? 'Round 1: Preliminaries' : ($isLast ? "Round {$i}: Grand Finals" : "Round {$i}: Eliminations"));
@@ -582,8 +622,8 @@ final class EventSetupService
                     'name' => $name,
                     'sequence' => $i,
                     'scoring_strategy' => $isLast ? 'ordinal' : 'weighted',
-                    'weight_in_overall' => 100.00,
-                    'is_back_to_zero' => $i === 1 ? true : ($isLast ? $finalBackToZero : false),
+                    'weight_in_overall' => $specs[$i]['weight'],
+                    'is_back_to_zero' => $specs[$i]['is_reset'],
                     'cutoff_mode' => 'top_n_advance',
                     'advancement_count' => max(1, $advancement),
                     'eliminate_count' => $eliminate,
@@ -654,20 +694,7 @@ final class EventSetupService
         $this->assertRoundCriteriaEditable($round);
 
         if (! empty($data['parent_id'])) {
-            $parent = Criterion::where('id', (int) $data['parent_id'])
-                ->where('round_id', $round->id)
-                ->first();
-
-            if ($parent === null) {
-                throw ValidationException::withMessages([
-                    'parent_id' => ['Parent criterion must belong to the same round.'],
-                ]);
-            }
-            if ($parent->parent_id !== null) {
-                throw ValidationException::withMessages([
-                    'parent_id' => ['Criteria hierarchy supports a maximum depth of two levels.'],
-                ]);
-            }
+            $this->assertValidParentCriterion($round, (int) $data['parent_id']);
         }
 
         $minScore = (float) ($data['min_score'] ?? 70.00);
@@ -715,10 +742,8 @@ final class EventSetupService
             ]);
         }
 
-        if (array_key_exists('parent_id', $data) && (int) $data['parent_id'] === $criterion->id) {
-            throw ValidationException::withMessages([
-                'parent_id' => ['A criterion cannot be its own parent.'],
-            ]);
+        if (array_key_exists('parent_id', $data) && $data['parent_id'] !== null) {
+            $this->assertValidParentCriterion($round, (int) $data['parent_id'], $criterion);
         }
 
         $allowed = array_intersect_key($data, array_flip([
@@ -748,6 +773,37 @@ final class EventSetupService
         $criterion->delete();
 
         return $this->computeLeafCriteriaWeightSum($round->criteria()->get());
+    }
+
+    private function assertValidParentCriterion(Round $round, int $parentId, ?Criterion $self = null): void
+    {
+        if ($self !== null && $parentId === $self->id) {
+            throw ValidationException::withMessages([
+                'parent_id' => ['A criterion cannot be its own parent.'],
+            ]);
+        }
+
+        if ($self !== null && $self->children()->exists()) {
+            throw ValidationException::withMessages([
+                'parent_id' => ['A parent criterion group with sub-criteria cannot be nested under another criterion.'],
+            ]);
+        }
+
+        $parent = Criterion::where('id', $parentId)
+            ->where('round_id', $round->id)
+            ->first();
+
+        if ($parent === null) {
+            throw ValidationException::withMessages([
+                'parent_id' => ['Parent criterion must belong to the same round.'],
+            ]);
+        }
+
+        if ($parent->parent_id !== null) {
+            throw ValidationException::withMessages([
+                'parent_id' => ['Criteria hierarchy supports a maximum depth of two levels.'],
+            ]);
+        }
     }
 
     private function assertRoundMutable(Round $round): void

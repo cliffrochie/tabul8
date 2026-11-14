@@ -252,6 +252,36 @@ export function CriteriaPanel({
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
             <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700" htmlFor="crit-parent">
+                Parent Group (Optional)
+              </label>
+              <select
+                id="crit-parent"
+                {...register('parent_id', {
+                  setValueAs: (v) =>
+                    v === '' || v === null || v === undefined
+                      ? null
+                      : Number(v),
+                })}
+                className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
+              >
+                <option value="">Top-Level Criterion / Group</option>
+                {criteria
+                  .filter((c) => c.parent_id === null)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      Child of: {c.name}
+                    </option>
+                  ))}
+              </select>
+              {errors.parent_id && (
+                <p className="text-xs text-rose-600">
+                  {errors.parent_id.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1">
               <label className="text-xs font-medium text-slate-700" htmlFor="crit-name">
                 Criterion Name
               </label>

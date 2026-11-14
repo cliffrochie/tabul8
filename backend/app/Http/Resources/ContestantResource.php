@@ -23,7 +23,9 @@ final class ContestantResource extends JsonResource
             'asset_ratio' => $this->asset_ratio,
             'status' => $this->status,
             'photo_url' => $this->photo_path
-                ? "/api/v1/events/{$this->event_id}/contestants/{$this->id}/photo"
+                ? ($request->is('api/v1/display/*')
+                    ? "/api/v1/display/events/{$this->event_id}/contestants/{$this->id}/photo"
+                    : "/api/v1/events/{$this->event_id}/contestants/{$this->id}/photo")
                 : null,
             'is_qualified_in_active_round' => (bool) ($this->resource->getAttribute('is_qualified_in_active_round') ?? true),
             'qualified_from_rank' => $this->resource->getAttribute('qualified_from_rank'),

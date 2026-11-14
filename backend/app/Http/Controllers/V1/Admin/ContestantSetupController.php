@@ -187,7 +187,26 @@ final class ContestantSetupController extends Controller
         );
     }
 
-    public function showPhoto(Event $event, Contestant $contestant): StreamedResponse
+    public function showPhoto(Request $request, Event $event, Contestant $contestant): StreamedResponse
+    {
+        $actor = $request->user();
+        if ($actor === null) {
+            abort(403, 'Authentication required.');
+        }
+
+        return $this->streamContestantPhoto($event, $contestant);
+    }
+
+    public function showDisplayPhoto(Event $event, Contestant $contestant): StreamedResponse
+    {
+        if ($contestant->status !== 'active') {
+            abort(404);
+        }
+
+        return $this->streamContestantPhoto($event, $contestant);
+    }
+
+    private function streamContestantPhoto(Event $event, Contestant $contestant): StreamedResponse
     {
         if ((int) $contestant->event_id !== (int) $event->id) {
             abort(404);

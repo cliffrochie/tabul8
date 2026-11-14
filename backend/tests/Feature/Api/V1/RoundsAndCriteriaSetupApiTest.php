@@ -199,3 +199,43 @@ it('supports nested parent/child criteria CRUD and computes leaf weights without
     $this->deleteJson("/api/v1/admin/criteria/{$siblingId}")->assertStatus(200);
     expect(Criterion::find($siblingId))->toBeNull();
 });
+
+it('distributes cumulative funnel weights cleanly for preflight and guards active round & parent criterion mutations', function () {
+    $fx = seedSetupEventWithContestants(8);
+    Sanctum::actingAs($fx['admin'], ['role:tabulator']);
+
+    // Generate 3-round cumulative funnel (final_back_to_zero = false => all 3 rounds share 1 segment)
+    $this->postJson("/api/v1/admin/events/{$fx['event']->id}/rounds/generate-funnel", [
+        'round_count' => 3,
+        'final_winners_count' => 3,
+        'final_back_to_zero' => false,
+    ])->assertStatus(200);
+
+    $preflightRes = $this->getJson("/api/v1/admin/events/{$fx['event']->id}/preflight")
+        ->assertStatus(200);
+    $segCheck = collect($preflightRes->json('data.checks'))->firstWhere('key', 'segment_weights');
+    expect($segCheck['ok'])->toBeTrue();
+
+    $round1 = $fx['event']->rounds()->orderBy('sequence')->first();
+    $round2 = $fx['event']->rounds()->orderBy('sequence')->skip(1)->first();
+
+    // Create parent group in round1 and try cross-round reparenting
+    $parentId = (int) $this->postJson("/api/v1/admin/rounds/{$round1->id}/criteria", [
+        'name' => 'Group A',
+        'weight_percentage' => 0,
+        'min_score' => 70,
+        'max_score' => 100,
+        'score_step' => 1,
+    ])->assertStatus(201)->json('data.criterion.id');
+
+    $round2CritId = (int) $round2->criteria()->first()->id;
+    $this->putJson("/api/v1/admin/criteria/{$round2CritId}", [
+        'parent_id' => $parentId,
+    ])->assertStatus(422);
+
+    // Mutating an active round via setup PUT /admin/rounds/{round} returns 409
+    $round1->update(['status' => 'active']);
+    $this->putJson("/api/v1/admin/rounds/{$round1->id}", [
+        'weight_in_overall' => 50,
+    ])->assertStatus(409);
+});

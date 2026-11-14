@@ -42,6 +42,7 @@ interface RoundsFunnelPanelProps {
 interface CutoffOverride {
   advancement_count: number;
   eliminate_count: number;
+  weight_in_overall: number;
 }
 
 export function RoundsFunnelPanel({
@@ -71,6 +72,7 @@ export function RoundsFunnelPanel({
       entering: number;
       advancement: number;
       eliminate: number;
+      weight: number;
       dirty: boolean;
     }[];
   }>(
@@ -83,6 +85,9 @@ export function RoundsFunnelPanel({
       const effectiveElim = override
         ? override.eliminate_count
         : (round.eliminate_count ?? Math.max(0, entering - effectiveAdv));
+      const effectiveWeight = override
+        ? override.weight_in_overall
+        : Number(round.weight_in_overall ?? 100);
 
       return {
         pool: Math.max(1, effectiveAdv),
@@ -93,6 +98,7 @@ export function RoundsFunnelPanel({
             entering,
             advancement: effectiveAdv,
             eliminate: effectiveElim,
+            weight: effectiveWeight,
             dirty: Boolean(override),
           },
         ],
@@ -220,7 +226,7 @@ export function RoundsFunnelPanel({
         </CardHeader>
         <CardContent className="space-y-3">
           {computedRows.map(
-            ({ round, entering, advancement, eliminate, dirty }, idx) => {
+            ({ round, entering, advancement, eliminate, weight, dirty }, idx) => {
               const isMutable = round.status === 'upcoming';
               return (
                 <div
@@ -281,21 +287,21 @@ export function RoundsFunnelPanel({
                     </div>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-5 items-end">
+                  <div className="grid gap-3 sm:grid-cols-6 items-end">
                     <div className="space-y-1">
                       <label className="text-[11px] font-medium text-slate-600">
                         Strategy
                       </label>
                       <select
                         value={round.scoring_strategy}
-                        disabled={isBusy || round.status === 'finalized'}
+                        disabled={isBusy || !isMutable}
                         onChange={(e) =>
                           onUpdateRound({
                             roundId: round.id,
                             scoring_strategy: e.target.value as ScoringStrategy,
                           })
                         }
-                        className="h-8 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs"
+                        className="h-8 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs disabled:bg-slate-100"
                       >
                         <option value="weighted">Weighted</option>
                         <option value="ordinal">Ordinal</option>
@@ -312,7 +318,7 @@ export function RoundsFunnelPanel({
                         size="sm"
                         variant={round.is_back_to_zero ? 'outline' : 'secondary'}
                         className="h-8 w-full text-xs"
-                        disabled={isBusy || round.status === 'finalized'}
+                        disabled={isBusy || !isMutable}
                         onClick={() =>
                           onUpdateRound({
                             roundId: round.id,
@@ -322,6 +328,39 @@ export function RoundsFunnelPanel({
                       >
                         {round.is_back_to_zero ? 'Reset 0' : 'Cumulative'}
                       </Button>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label
+                        className="text-[11px] font-medium text-slate-600"
+                        htmlFor={`weight-${round.id}`}
+                      >
+                        Weight (%)
+                      </label>
+                      <Input
+                        id={`weight-${round.id}`}
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={100}
+                        disabled={isBusy || !isMutable}
+                        value={weight}
+                        onChange={(e) => {
+                          const nextWeight = Math.max(
+                            0,
+                            Math.min(100, Number(e.target.value) || 0),
+                          );
+                          setCutoffOverrides((prev) => ({
+                            ...prev,
+                            [round.id]: {
+                              advancement_count: advancement,
+                              eliminate_count: eliminate,
+                              weight_in_overall: nextWeight,
+                            },
+                          }));
+                        }}
+                        className="h-8 text-xs tabular-nums"
+                      />
                     </div>
 
                     <div className="space-y-1">
@@ -337,6 +376,7 @@ export function RoundsFunnelPanel({
                         type="number"
                         min={1}
                         max={entering > 0 ? entering : 999}
+                        disabled={isBusy || !isMutable}
                         value={advancement}
                         onChange={(e) => {
                           const nextAdv = Math.max(
@@ -353,6 +393,7 @@ export function RoundsFunnelPanel({
                             [round.id]: {
                               advancement_count: nextAdv,
                               eliminate_count: nextElim,
+                              weight_in_overall: weight,
                             },
                           }));
                         }}
@@ -373,6 +414,7 @@ export function RoundsFunnelPanel({
                         type="number"
                         min={0}
                         max={entering > 0 ? Math.max(0, entering - 1) : 999}
+                        disabled={isBusy || !isMutable}
                         value={eliminate}
                         onChange={(e) => {
                           const maxElim =
@@ -390,6 +432,7 @@ export function RoundsFunnelPanel({
                             [round.id]: {
                               advancement_count: nextAdv,
                               eliminate_count: nextElim,
+                              weight_in_overall: weight,
                             },
                           }));
                         }}
@@ -401,12 +444,13 @@ export function RoundsFunnelPanel({
                       <Button
                         type="button"
                         size="sm"
-                        disabled={isBusy || !dirty || round.status === 'finalized'}
+                        disabled={isBusy || !dirty || !isMutable}
                         onClick={() => {
                           onUpdateRound({
                             roundId: round.id,
                             advancement_count: advancement,
                             eliminate_count: eliminate,
+                            weight_in_overall: weight,
                             cutoff_mode: 'top_n_advance',
                           });
                           setCutoffOverrides((prev) => {

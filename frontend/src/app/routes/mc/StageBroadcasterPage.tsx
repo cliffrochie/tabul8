@@ -60,7 +60,7 @@ export function StageBroadcasterPage() {
     events.find((e) => e.id === requestedId)?.id ??
     liveEvent?.id ??
     events[0]?.id ??
-    1;
+    0;
 
   const { data: state, onlineJudgeIds, isLoading } = useAdminEventState(eventId);
   const { syncStage } = useAdminMutations(eventId, state?.active_round?.id);
