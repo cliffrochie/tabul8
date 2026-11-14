@@ -12,3 +12,6 @@ export { PreFlightBanner } from './components/PreFlightBanner';
 export { EventsPanel } from './components/EventsPanel';
 export { RoundsFunnelPanel } from './components/RoundsFunnelPanel';
 export { CriteriaPanel } from './components/CriteriaPanel';
+export { ContestantsPanel } from './components/ContestantsPanel';
+export { JudgesPanel } from './components/JudgesPanel';
+export { RulesUsersPanel } from './components/RulesUsersPanel';

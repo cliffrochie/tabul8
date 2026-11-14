@@ -7,6 +7,7 @@ import { TabulatorConsolePage } from '@/app/routes/console/TabulatorConsolePage'
 import { ArenaLedWallPage } from '@/app/routes/display/ArenaLedWallPage';
 import { JudgeMatrixPage } from '@/app/routes/judge/JudgeMatrixPage';
 import { JudgeStagePage } from '@/app/routes/judge/JudgeStagePage';
+import { StageBroadcasterPage } from '@/app/routes/mc/StageBroadcasterPage';
 
 export const router = createBrowserRouter([
   {
@@ -50,6 +51,14 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute allowedActor="user">
         <EventSetupPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/mc',
+    element: (
+      <ProtectedRoute allowedActor="user">
+        <StageBroadcasterPage />
       </ProtectedRoute>
     ),
   },

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { LogOut, ShieldCheck, AlertCircle, SlidersHorizontal, LayoutDashboard } from 'lucide-react';
+import { LogOut, ShieldCheck, AlertCircle, SlidersHorizontal, LayoutDashboard, Mic } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -70,6 +70,17 @@ export function ConsoleLayout({
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Event Setup
+              </Link>
+              <Link
+                to="/mc"
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${
+                  location.pathname.startsWith('/mc')
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Mic className="h-3.5 w-3.5" />
+                MC Stage
               </Link>
             </nav>
           </div>

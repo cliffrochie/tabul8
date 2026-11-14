@@ -4,26 +4,43 @@ import { ConsoleLayout } from '@/components/layouts/ConsoleLayout';
 import { Button } from '@/components/ui/button';
 import { useAdminEventState } from '@/features/tabulator-console';
 import {
+  ContestantsPanel,
   CriteriaPanel,
   EventsPanel,
+  JudgesPanel,
   PreFlightBanner,
   RoundsFunnelPanel,
+  RulesUsersPanel,
+  downloadJudgeCardsPdf,
   useAdminEventsList,
   useEventPreflight,
   useSetupMutations,
+  useStaffUsers,
 } from '@/features/event-setup';
+import { useAuthStore } from '@/stores/authStore';
 
-type SetupTab = 'events' | 'rounds' | 'criteria';
+type SetupTab =
+  | 'events'
+  | 'rounds'
+  | 'criteria'
+  | 'contestants'
+  | 'judges'
+  | 'rules-users';
 
 const TABS: { id: SetupTab; label: string }[] = [
   { id: 'events', label: 'WF-08/09 · Events' },
   { id: 'rounds', label: 'WF-10 · Rounds Funnel' },
   { id: 'criteria', label: 'WF-11 · Criteria & Weights' },
+  { id: 'contestants', label: 'WF-12 · Contestants' },
+  { id: 'judges', label: 'WF-13 · Judges & PINs' },
+  { id: 'rules-users', label: 'WF-14 · Rules & Users' },
 ];
 
 export function EventSetupPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<SetupTab>('events');
+  const userRole = useAuthStore((s) => s.user?.role);
+  const isSuperAdmin = userRole === 'super_admin';
 
   const eventsListQuery = useAdminEventsList();
   const events = eventsListQuery.data?.data ?? [];
@@ -33,6 +50,7 @@ export function EventSetupPage() {
 
   const { data: state, isLoading } = useAdminEventState(eventId);
   const { data: preflight } = useEventPreflight(state?.event?.id ?? null);
+  const staffQuery = useStaffUsers(isSuperAdmin);
   const setup = useSetupMutations(eventId);
 
   const selectEvent = (nextId: number) => {
@@ -107,7 +125,7 @@ export function EventSetupPage() {
             onDeleteRound={(roundId) => setup.deleteRound.mutate(roundId)}
             onReorderRounds={(roundIds) => setup.reorderRounds.mutate(roundIds)}
           />
-        ) : (
+        ) : activeTab === 'criteria' ? (
           <CriteriaPanel
             rounds={state.rounds}
             isBusy={
@@ -123,6 +141,83 @@ export function EventSetupPage() {
             }
             onDeleteCriterion={(criterionId) =>
               setup.deleteCriterion.mutate(criterionId)
+            }
+          />
+        ) : activeTab === 'contestants' ? (
+          <ContestantsPanel
+            contestants={state.contestants}
+            activeRound={state.active_round}
+            isBusy={
+              setup.createContestant.isPending ||
+              setup.updateContestant.isPending ||
+              setup.deleteContestant.isPending ||
+              setup.importContestantsCsv.isPending ||
+              setup.renumberContestants.isPending ||
+              setup.uploadContestantPhoto.isPending
+            }
+            onCreateContestant={(payload) =>
+              setup.createContestant.mutateAsync(payload)
+            }
+            onUpdateContestant={(payload) =>
+              setup.updateContestant.mutate(payload)
+            }
+            onDeleteContestant={(contestantId) =>
+              setup.deleteContestant.mutate(contestantId)
+            }
+            onImportCsv={(csvText) =>
+              setup.importContestantsCsv.mutateAsync(csvText)
+            }
+            onRenumber={() => setup.renumberContestants.mutate()}
+            onUploadPhoto={(payload) =>
+              setup.uploadContestantPhoto.mutate(payload)
+            }
+          />
+        ) : activeTab === 'judges' ? (
+          <JudgesPanel
+            eventId={state.event.id}
+            judges={state.judges ?? []}
+            isBusy={
+              setup.createJudge.isPending ||
+              setup.updateJudge.isPending ||
+              setup.deleteJudge.isPending ||
+              setup.regenerateJudgePin.isPending
+            }
+            onCreateJudge={(payload) =>
+              setup.createJudge.mutateAsync(payload)
+            }
+            onUpdateJudge={(payload) => setup.updateJudge.mutate(payload)}
+            onDeleteJudge={(judgeId) => setup.deleteJudge.mutate(judgeId)}
+            onRegeneratePin={(judgeId) =>
+              setup.regenerateJudgePin.mutateAsync(judgeId)
+            }
+            onDownloadCardsPdf={(targetId) => downloadJudgeCardsPdf(targetId)}
+          />
+        ) : (
+          <RulesUsersPanel
+            key={state.event.id}
+            event={state.event}
+            isSuperAdmin={isSuperAdmin}
+            staffUsers={staffQuery.data ?? []}
+            isBusy={
+              setup.updateEvent.isPending ||
+              setup.createStaffUser.isPending ||
+              setup.updateStaffUser.isPending ||
+              setup.deleteStaffUser.isPending
+            }
+            onSaveEventSettings={(settings) =>
+              setup.updateEvent.mutateAsync({
+                targetEventId: state.event.id,
+                settings,
+              })
+            }
+            onCreateStaffUser={(payload) =>
+              setup.createStaffUser.mutateAsync(payload)
+            }
+            onUpdateStaffUser={(payload) =>
+              setup.updateStaffUser.mutate(payload)
+            }
+            onDeleteStaffUser={(userId) =>
+              setup.deleteStaffUser.mutate(userId)
             }
           />
         )}
