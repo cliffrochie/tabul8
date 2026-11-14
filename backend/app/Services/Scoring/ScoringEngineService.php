@@ -39,11 +39,17 @@ final class ScoringEngineService
             return collect();
         }
 
-        $cumulativeMap = $this->computeCumulativeScoresIfApplicable($round, $dtos);
+        $dtos = $this->applySegmentedCumulativeRanking($round, $dtos);
 
-        return DB::transaction(function () use ($round, $dtos, $cumulativeMap): Collection {
+        return DB::transaction(function () use ($round, $dtos): Collection {
             $now = now();
             $persisted = collect();
+            $activeIds = $dtos->pluck('contestantId')->all();
+
+            // Remove stale RoundResult rows for contestants not in this round's active roster
+            RoundResult::where('round_id', $round->id)
+                ->whereNotIn('contestant_id', $activeIds)
+                ->delete();
 
             foreach ($dtos as $dto) {
                 $record = RoundResult::updateOrCreate(
@@ -58,7 +64,7 @@ final class ScoringEngineService
                         'first_place_count' => $dto->firstPlaceCount,
                         'deduction_points' => $dto->deductionPoints,
                         'net_composite' => $dto->netComposite,
-                        'cumulative_score' => $cumulativeMap[$dto->contestantId] ?? null,
+                        'cumulative_score' => $dto->cumulativeScore,
                         'primary_crit_avg' => $dto->primaryCritAvg,
                         'chairman_rank' => $dto->chairmanRank,
                         'final_rank' => $dto->finalRank,
@@ -78,46 +84,169 @@ final class ScoringEngineService
     }
 
     /**
-     * Combines 0-100 percentage-scale net_composite across cumulative rounds up to $round->sequence.
+     * Returns true when an unbroken tie straddles the Top N advancement cutoff boundary.
      *
-     * @param  Collection<int, RoundResultDTO>  $currentDtos
-     * @return array<int, float>
+     * @param  Collection<int, RoundResult>  $results
      */
-    private function computeCumulativeScoresIfApplicable(Round $round, Collection $currentDtos): array
+    public function hasUnresolvedCutoffTie(Round $round, Collection $results): bool
     {
-        if ($round->is_back_to_zero) {
-            return [];
+        $k = (int) $round->advancement_count;
+        if ($k <= 0 || $results->count() <= $k) {
+            return false;
         }
 
-        $priorRounds = $round->event->rounds()
-            ->where('sequence', '<', $round->sequence)
-            ->where('is_back_to_zero', false)
+        $ordered = $results->sortBy('final_rank')->values();
+        $atCutoff = $ordered->get($k - 1);
+        $afterCutoff = $ordered->get($k);
+
+        if ($atCutoff === null || $afterCutoff === null) {
+            return false;
+        }
+
+        return (int) $atCutoff->final_rank === (int) $afterCutoff->final_rank;
+    }
+
+    /**
+     * Resolves the contiguous cumulative segment bounded by the most recent is_back_to_zero = true reset
+     * and re-ranks contestants by normalized cumulative score when segment length >= 2.
+     *
+     * @param  Collection<int, RoundResultDTO>  $currentDtos
+     * @return Collection<int, RoundResultDTO>
+     */
+    private function applySegmentedCumulativeRanking(Round $round, Collection $currentDtos): Collection
+    {
+        if ($round->is_back_to_zero) {
+            return $currentDtos;
+        }
+
+        $allUpToCurrent = $round->event->rounds()
+            ->where('sequence', '<=', $round->sequence)
+            ->orderBy('sequence')
             ->with('results')
             ->get();
 
-        if ($priorRounds->isEmpty()) {
-            return [];
+        // Walk backwards to find segment start s_r (most recent is_back_to_zero = true, or first round)
+        $segmentRounds = collect();
+        foreach ($allUpToCurrent->reverse() as $candidate) {
+            $segmentRounds->prepend($candidate);
+            if ($candidate->is_back_to_zero) {
+                break;
+            }
+        }
+
+        if ($segmentRounds->count() < 2) {
+            return $currentDtos;
+        }
+
+        $totalWeight = $segmentRounds->sum(fn (Round $r): float => (float) $r->weight_in_overall);
+        if ($totalWeight <= 0.0) {
+            return $currentDtos;
         }
 
         $priorByRoundContestant = [];
-        foreach ($priorRounds as $prior) {
-            foreach ($prior->results as $res) {
-                $priorByRoundContestant[$prior->id][$res->contestant_id] = (float) $res->net_composite;
+        foreach ($segmentRounds as $segRound) {
+            if ($segRound->id === $round->id) {
+                continue;
+            }
+            foreach ($segRound->results as $res) {
+                $priorByRoundContestant[$segRound->id][$res->contestant_id] = (float) $res->net_composite;
             }
         }
 
-        $cumulative = [];
-        foreach ($currentDtos as $dto) {
-            $sum = round($dto->netComposite * ((float) $round->weight_in_overall / 100.0), 3, PHP_ROUND_HALF_UP);
+        $withCumulative = $currentDtos->map(function (RoundResultDTO $dto) use ($round, $segmentRounds, $priorByRoundContestant, $totalWeight): RoundResultDTO {
+            $weightedSum = $dto->netComposite * (float) $round->weight_in_overall;
 
-            foreach ($priorRounds as $prior) {
-                $priorNet = $priorByRoundContestant[$prior->id][$dto->contestantId] ?? 0.0;
-                $sum += round($priorNet * ((float) $prior->weight_in_overall / 100.0), 3, PHP_ROUND_HALF_UP);
+            foreach ($segmentRounds as $segRound) {
+                if ($segRound->id === $round->id) {
+                    continue;
+                }
+                $priorNet = $priorByRoundContestant[$segRound->id][$dto->contestantId] ?? 0.0;
+                $weightedSum += $priorNet * (float) $segRound->weight_in_overall;
             }
 
-            $cumulative[$dto->contestantId] = round($sum, 3, PHP_ROUND_HALF_UP);
+            $cumulative = round($weightedSum / $totalWeight, 3, PHP_ROUND_HALF_UP);
+
+            return new RoundResultDTO(
+                roundId: $dto->roundId,
+                contestantId: $dto->contestantId,
+                meanScore: $dto->meanScore,
+                trimmedMean: $dto->trimmedMean,
+                rankSum: $dto->rankSum,
+                firstPlaceCount: $dto->firstPlaceCount,
+                deductionPoints: $dto->deductionPoints,
+                netComposite: $dto->netComposite,
+                cumulativeScore: $cumulative,
+                primaryCritAvg: $dto->primaryCritAvg,
+                chairmanRank: $dto->chairmanRank,
+                finalRank: $dto->finalRank,
+                isTied: $dto->isTied,
+                tieBreakRuleApplied: $dto->tieBreakRuleApplied,
+                isQualified: $dto->isQualified,
+                judgeBreakdownSnapshot: $dto->judgeBreakdownSnapshot,
+            );
+        })->all();
+
+        usort($withCumulative, function (RoundResultDTO $a, RoundResultDTO $b): int {
+            $dispCmp = round((float) $b->cumulativeScore, 2, PHP_ROUND_HALF_UP)
+                <=> round((float) $a->cumulativeScore, 2, PHP_ROUND_HALF_UP);
+            if ($dispCmp !== 0) {
+                return $dispCmp;
+            }
+
+            $unroundedCmp = ($b->cumulativeScore ?? 0.0) <=> ($a->cumulativeScore ?? 0.0);
+            if ($unroundedCmp !== 0) {
+                return $unroundedCmp;
+            }
+
+            $netCmp = $b->netComposite <=> $a->netComposite;
+            if ($netCmp !== 0) {
+                return $netCmp;
+            }
+
+            return $b->primaryCritAvg <=> $a->primaryCritAvg;
+        });
+
+        $reranked = [];
+        $currentRank = 1;
+        $total = count($withCumulative);
+        for ($idx = 0; $idx < $total; $idx++) {
+            $dto = $withCumulative[$idx];
+            $prev = $idx > 0 ? $withCumulative[$idx - 1] : null;
+            $next = $idx + 1 < $total ? $withCumulative[$idx + 1] : null;
+
+            $samePrev = $prev !== null
+                && $prev->cumulativeScore === $dto->cumulativeScore
+                && $prev->netComposite === $dto->netComposite
+                && $prev->primaryCritAvg === $dto->primaryCritAvg;
+            $sameNext = $next !== null
+                && $dto->cumulativeScore === $next->cumulativeScore
+                && $dto->netComposite === $next->netComposite
+                && $dto->primaryCritAvg === $next->primaryCritAvg;
+
+            if ($idx > 0 && ! $samePrev) {
+                $currentRank = $idx + 1;
+            }
+
+            $reranked[] = new RoundResultDTO(
+                roundId: $dto->roundId,
+                contestantId: $dto->contestantId,
+                meanScore: $dto->meanScore,
+                trimmedMean: $dto->trimmedMean,
+                rankSum: $dto->rankSum,
+                firstPlaceCount: $dto->firstPlaceCount,
+                deductionPoints: $dto->deductionPoints,
+                netComposite: $dto->netComposite,
+                cumulativeScore: $dto->cumulativeScore,
+                primaryCritAvg: $dto->primaryCritAvg,
+                chairmanRank: $dto->chairmanRank,
+                finalRank: $currentRank,
+                isTied: $samePrev || $sameNext,
+                tieBreakRuleApplied: $dto->tieBreakRuleApplied,
+                isQualified: $currentRank <= $round->advancement_count,
+                judgeBreakdownSnapshot: $dto->judgeBreakdownSnapshot,
+            );
         }
 
-        return $cumulative;
+        return collect($reranked);
     }
 }

@@ -6,6 +6,7 @@ use App\Models\Contestant;
 use App\Models\Criterion;
 use App\Models\Judge;
 use App\Models\Round;
+use App\Services\RoundRosterService;
 use App\Services\Scoring\Contracts\ScoringStrategyInterface;
 use App\Services\Scoring\DTOs\RoundResultDTO;
 use Illuminate\Support\Collection;
@@ -154,14 +155,12 @@ abstract class AbstractScoringStrategy implements ScoringStrategyInterface
      */
     protected function resolveActiveContestants(Round $round): Collection
     {
-        $roundContestants = $round->contestants()
-            ->where('contestants.status', 'active')
-            ->get();
-
-        if ($roundContestants->isNotEmpty()) {
-            return $roundContestants;
+        $qualified = app(RoundRosterService::class)->getQualifiedContestants($round);
+        if ($qualified->isNotEmpty()) {
+            return $qualified;
         }
 
+        // Unseeded Round r > 1 fallback (e.g., standalone unit test fixtures before finalization)
         return $round->event->contestants()
             ->where('status', 'active')
             ->orderBy('candidate_number')

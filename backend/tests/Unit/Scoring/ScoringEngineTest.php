@@ -372,3 +372,177 @@ test('score audit logs are immutable and reject update or delete', function () {
         ->and(fn () => $log->delete())
         ->toThrow(ImmutableAuditLogException::class);
 });
+
+test('T-ALG-10: multi-round elimination evaluates only qualified round contestants', function () {
+    $fx = createScoringFixture('ordinal', 2, 15, [['name' => 'Overall', 'weight' => 100.0]], false, 10);
+
+    // Give all 15 contestants scores in Round 1
+    foreach ($fx['contestants'] as $idx => $contestant) {
+        $score = 99.0 - $idx; // C1=99 down to C15=85
+        recordScoresForContestant($fx['round'], $contestant, $fx['judges'], $fx['criteria'], [[$score], [$score]]);
+    }
+
+    $engine = app(ScoringEngineService::class);
+    $r1Results = $engine->tabulateRound($fx['round']);
+    expect($r1Results)->toHaveCount(15);
+
+    // Seed Round 2 with Top 10 qualifiers only
+    $round2 = Round::create([
+        'event_id' => $fx['event']->id,
+        'name' => 'Round 2: Semi-Finals',
+        'sequence' => 2,
+        'scoring_strategy' => 'ordinal',
+        'weight_in_overall' => 60.00,
+        'is_back_to_zero' => true,
+        'advancement_count' => 5,
+        'eliminate_count' => 5,
+        'status' => 'active',
+    ]);
+    $crit2 = Criterion::create([
+        'round_id' => $round2->id,
+        'name' => 'Overall',
+        'weight_percentage' => 100.00,
+        'min_score' => 70.00,
+        'max_score' => 100.00,
+        'score_step' => 0.50,
+        'sequence' => 1,
+    ]);
+
+    $syncData = [];
+    foreach ($r1Results->where('is_qualified', true)->values() as $idx => $res) {
+        $syncData[$res->contestant_id] = [
+            'performance_order' => $idx + 1,
+            'qualified_from_rank' => $res->final_rank,
+            'qualification_method' => 'AUTO_TOP_N',
+        ];
+    }
+    $round2->contestants()->sync($syncData);
+
+    // Record Round 2 scores ONLY for the 10 qualifiers; eliminated 5 have no scores
+    foreach (array_slice($fx['contestants'], 0, 10) as $idx => $contestant) {
+        $score = 95.0 - ($idx * 0.5);
+        recordScoresForContestant($round2, $contestant, $fx['judges'], [$crit2], [[$score], [$score]]);
+    }
+
+    $r2Results = $engine->tabulateRound($round2);
+    $maxRankSum = $r2Results->max(fn ($r) => (float) $r->rank_sum);
+
+    expect($r2Results)->toHaveCount(10)
+        ->and($maxRankSum)->toBe(20.0) // 2 judges * rank 10 = 20.0 (not 30.0)
+        ->and($r2Results->where('is_qualified', true))->toHaveCount(5);
+});
+
+test('T-ALG-11: detects unbroken tie straddling advancement cutoff', function () {
+    $fx = createScoringFixture('weighted', 2, 4, [['name' => 'Overall', 'weight' => 100.0]], false, 2);
+
+    // C1=98, C2=92, C3=92 (identical across all criteria & judges -> straddles Top 2), C4=85
+    recordScoresForContestant($fx['round'], $fx['contestants'][0], $fx['judges'], $fx['criteria'], [[98], [98]]);
+    recordScoresForContestant($fx['round'], $fx['contestants'][1], $fx['judges'], $fx['criteria'], [[92], [92]]);
+    recordScoresForContestant($fx['round'], $fx['contestants'][2], $fx['judges'], $fx['criteria'], [[92], [92]]);
+    recordScoresForContestant($fx['round'], $fx['contestants'][3], $fx['judges'], $fx['criteria'], [[85], [85]]);
+
+    $engine = app(ScoringEngineService::class);
+    $results = $engine->tabulateRound($fx['round']);
+
+    expect($engine->hasUnresolvedCutoffTie($fx['round'], $results))->toBeTrue();
+});
+
+test('T-ALG-12: dynamic four-round segmented cumulative and back-to-zero chain isolates segments and ranks by cumulative score', function () {
+    $fx = createScoringFixture('weighted', 2, 2, [['name' => 'Overall', 'weight' => 100.0]], false, 2);
+    $r1 = $fx['round'];
+    $r1->update(['weight_in_overall' => 40.00, 'is_back_to_zero' => false]);
+
+    $r2 = Round::create([
+        'event_id' => $fx['event']->id,
+        'name' => 'Round 2',
+        'sequence' => 2,
+        'scoring_strategy' => 'weighted',
+        'weight_in_overall' => 60.00,
+        'is_back_to_zero' => false,
+        'advancement_count' => 2,
+        'status' => 'active',
+    ]);
+    $c2 = Criterion::create(['round_id' => $r2->id, 'name' => 'Overall', 'weight_percentage' => 100.0, 'min_score' => 70.0, 'max_score' => 100.0, 'score_step' => 0.5, 'sequence' => 1]);
+
+    $r3 = Round::create([
+        'event_id' => $fx['event']->id,
+        'name' => 'Round 3 (Reset Segment)',
+        'sequence' => 3,
+        'scoring_strategy' => 'weighted',
+        'weight_in_overall' => 30.00,
+        'is_back_to_zero' => true,
+        'advancement_count' => 2,
+        'status' => 'active',
+    ]);
+    $c3 = Criterion::create(['round_id' => $r3->id, 'name' => 'Overall', 'weight_percentage' => 100.0, 'min_score' => 70.0, 'max_score' => 100.0, 'score_step' => 0.5, 'sequence' => 1]);
+
+    $r4 = Round::create([
+        'event_id' => $fx['event']->id,
+        'name' => 'Round 4',
+        'sequence' => 4,
+        'scoring_strategy' => 'weighted',
+        'weight_in_overall' => 70.00,
+        'is_back_to_zero' => false,
+        'advancement_count' => 1,
+        'status' => 'active',
+    ]);
+    $c4 = Criterion::create(['round_id' => $r4->id, 'name' => 'Overall', 'weight_percentage' => 100.0, 'min_score' => 70.0, 'max_score' => 100.0, 'score_step' => 0.5, 'sequence' => 1]);
+
+    // C1 dominates R1+R2 (95, 95) -> R2 cumulative 95.0; C2 has (80, 80) -> R2 cumulative 80.0
+    recordScoresForContestant($r1, $fx['contestants'][0], $fx['judges'], $fx['criteria'], [[95], [95]]);
+    recordScoresForContestant($r1, $fx['contestants'][1], $fx['judges'], $fx['criteria'], [[80], [80]]);
+    recordScoresForContestant($r2, $fx['contestants'][0], $fx['judges'], [$c2], [[95], [95]]);
+    recordScoresForContestant($r2, $fx['contestants'][1], $fx['judges'], [$c2], [[80], [80]]);
+
+    // R3 resets: C1=80, C2=90. R4: C1=90, C2=88
+    // Segment 2 (R3 30% + R4 70%):
+    // C1 = 80*0.30 + 90*0.70 = 24 + 63 = 87.000
+    // C2 = 90*0.30 + 88*0.70 = 27 + 61.6 = 88.600 -> C2 must rank #1 in R4 despite C1 having higher R4 raw (90 vs 88)!
+    recordScoresForContestant($r3, $fx['contestants'][0], $fx['judges'], [$c3], [[80], [80]]);
+    recordScoresForContestant($r3, $fx['contestants'][1], $fx['judges'], [$c3], [[90], [90]]);
+    recordScoresForContestant($r4, $fx['contestants'][0], $fx['judges'], [$c4], [[90], [90]]);
+    recordScoresForContestant($r4, $fx['contestants'][1], $fx['judges'], [$c4], [[88], [88]]);
+
+    $engine = app(ScoringEngineService::class);
+    $engine->tabulateRound($r1);
+    $r2Res = $engine->tabulateRound($r2)->keyBy('contestant_id');
+    $r3Res = $engine->tabulateRound($r3)->keyBy('contestant_id');
+    $r4Res = $engine->tabulateRound($r4)->values();
+
+    expect((float) $r2Res[$fx['contestants'][0]->id]->cumulative_score)->toBe(95.0)
+        ->and($r3Res[$fx['contestants'][0]->id]->cumulative_score)->toBeNull()
+        ->and($r4Res[0]->contestant_id)->toBe($fx['contestants'][1]->id)
+        ->and($r4Res[0]->final_rank)->toBe(1)
+        ->and($r4Res[0]->is_qualified)->toBeTrue()
+        ->and((float) $r4Res[0]->cumulative_score)->toBe(88.6)
+        ->and((float) $r4Res[1]->cumulative_score)->toBe(87.0)
+        ->and($r4Res[1]->final_rank)->toBe(2)
+        ->and($r4Res[1]->is_qualified)->toBeFalse();
+});
+
+test('mid-segment cumulative round normalizes by accumulated segment weight onto 0-100 scale', function () {
+    $fx = createScoringFixture('weighted', 2, 1, [['name' => 'Overall', 'weight' => 100.0]], false, 1);
+    $fx['round']->update(['weight_in_overall' => 40.00]);
+
+    $r2 = Round::create([
+        'event_id' => $fx['event']->id,
+        'name' => 'Round 2 (Mid-Segment)',
+        'sequence' => 2,
+        'scoring_strategy' => 'weighted',
+        'weight_in_overall' => 30.00,
+        'is_back_to_zero' => false,
+        'advancement_count' => 1,
+        'status' => 'active',
+    ]);
+    $c2 = Criterion::create(['round_id' => $r2->id, 'name' => 'Overall', 'weight_percentage' => 100.0, 'min_score' => 70.0, 'max_score' => 100.0, 'score_step' => 0.5, 'sequence' => 1]);
+
+    // R1 = 80 (weight 40), R2 = 94 (weight 30) -> (80*40 + 94*30) / 70 = (3200 + 2820) / 70 = 6020 / 70 = 86.000
+    recordScoresForContestant($fx['round'], $fx['contestants'][0], $fx['judges'], $fx['criteria'], [[80], [80]]);
+    recordScoresForContestant($r2, $fx['contestants'][0], $fx['judges'], [$c2], [[94], [94]]);
+
+    $engine = app(ScoringEngineService::class);
+    $engine->tabulateRound($fx['round']);
+    $r2Res = $engine->tabulateRound($r2);
+
+    expect((float) $r2Res[0]->cumulative_score)->toBe(86.0);
+});
