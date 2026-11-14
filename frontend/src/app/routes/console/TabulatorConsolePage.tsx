@@ -22,24 +22,48 @@ export function TabulatorConsolePage() {
 
   const judges = state?.judges ?? [];
   const activeJudgesCount = judges.filter((j) => j.is_active).length;
-  const scoresMatrix = state?.scores_matrix ?? {};
 
-  const unlockRequestCount = useMemo(() => {
-    let count = 0;
-    for (const row of Object.values(scoresMatrix)) {
-      for (const cell of Object.values(row)) {
+  const unlockRequests = useMemo(() => {
+    const matrix = state?.scores_matrix;
+    const list: {
+      contestantId: number;
+      contestantNumber: number;
+      contestantName: string;
+      judgeId: number;
+      judgeNumber: number;
+      judgeName: string;
+    }[] = [];
+
+    if (!matrix || !state) return list;
+
+    const contestantMap = new Map((state.contestants ?? []).map((c) => [c.id, c]));
+    const judgeMap = new Map((state.judges ?? []).map((j) => [j.id, j]));
+
+    for (const [cIdStr, row] of Object.entries(matrix)) {
+      const cId = Number(cIdStr);
+      const contestant = contestantMap.get(cId);
+      for (const [jIdStr, cell] of Object.entries(row)) {
         if (cell.status === 'UNLOCK_REQUESTED') {
-          count += 1;
+          const jId = Number(jIdStr);
+          const judge = judgeMap.get(jId);
+          list.push({
+            contestantId: cId,
+            contestantNumber: contestant?.candidate_number ?? cId,
+            contestantName: contestant?.name ?? 'Unknown',
+            judgeId: jId,
+            judgeNumber: judge?.judge_number ?? jId,
+            judgeName: judge?.name ?? 'Judge',
+          });
         }
       }
     }
-    return count;
-  }, [scoresMatrix]);
+    return list;
+  }, [state]);
 
   if (isLoading) {
     return (
       <ConsoleLayout>
-        <div className="py-16 text-center text-sm text-slate-500">
+        <div className="py-16 text-center text-sm text-slate-500 font-mono-tech">
           Loading Tabulator Console...
         </div>
       </ConsoleLayout>
@@ -60,11 +84,52 @@ export function TabulatorConsolePage() {
   return (
     <ConsoleLayout
       eventTitle={state.event.title}
-      unlockRequestCount={unlockRequestCount}
+      unlockRequestCount={unlockRequests.length}
       onlineJudgesCount={onlineJudgeIds.length}
       totalJudgesCount={activeJudgesCount}
     >
       <div className="space-y-6">
+        {unlockRequests.length > 0 && state.active_round && (
+          <div className="wf-box p-4 bg-amber-50/90 border-amber-300 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping shrink-0" />
+              <div className="text-xs">
+                <strong className="font-bold text-amber-950 uppercase font-mono-tech">
+                  {unlockRequests.length} Pending Unlock Request(s):
+                </strong>
+                <span className="text-amber-900 ml-1">
+                  {unlockRequests
+                    .map(
+                      (u) =>
+                        `Judge #${u.judgeNumber} (${u.judgeName}) on #${u.contestantNumber} ${u.contestantName}`
+                    )
+                    .join(' • ')}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {unlockRequests.map((u) => (
+                <button
+                  key={`${u.contestantId}-${u.judgeId}`}
+                  type="button"
+                  disabled={resolveUnlock.isPending}
+                  onClick={() =>
+                    resolveUnlock.mutate({
+                      round_id: state.active_round!.id,
+                      contestant_id: u.contestantId,
+                      judge_id: u.judgeId,
+                      decision: 'APPROVE',
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-500 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Approve J#{u.judgeNumber} (#{u.contestantNumber})
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <StageControlCards
           event={state.event}
           rounds={state.rounds}
@@ -82,7 +147,8 @@ export function TabulatorConsolePage() {
           activeRound={state.active_round}
           contestants={state.contestants}
           judges={judges}
-          scoresMatrix={scoresMatrix}
+          onStageContestantId={state.event.on_stage_contestant_id}
+          scoresMatrix={state.scores_matrix ?? {}}
           isResolving={resolveUnlock.isPending}
           onResolveUnlock={(payload) => resolveUnlock.mutate(payload)}
         />
