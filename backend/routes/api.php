@@ -1,13 +1,16 @@
 <?php
 
 use App\Http\Controllers\V1\Admin\AdminScoreController;
+use App\Http\Controllers\V1\Admin\ContestantSetupController;
 use App\Http\Controllers\V1\Admin\CriterionSetupController;
 use App\Http\Controllers\V1\Admin\DeductionController;
 use App\Http\Controllers\V1\Admin\EventCrudController;
+use App\Http\Controllers\V1\Admin\JudgeSetupController;
 use App\Http\Controllers\V1\Admin\ReportController;
 use App\Http\Controllers\V1\Admin\RoundControlController;
 use App\Http\Controllers\V1\Admin\RoundSetupController;
 use App\Http\Controllers\V1\Admin\StageSyncController;
+use App\Http\Controllers\V1\Admin\UserManagementController;
 use App\Http\Controllers\V1\AuthController;
 use App\Http\Controllers\V1\EventStateController;
 use App\Http\Controllers\V1\ScoreController;
@@ -28,6 +31,7 @@ Route::prefix('v1')->group(function (): void {
 
         // Shared Live State Hydration (role-scoped)
         Route::get('/events/{event}/state', [EventStateController::class, 'show']);
+        Route::get('/events/{event}/contestants/{contestant}/photo', [ContestantSetupController::class, 'showPhoto']);
 
         // Judge Scoring & Offline Outbox Flush
         Route::post('/scores/upsert', [ScoreController::class, 'upsert']);
@@ -51,6 +55,24 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/rounds/{round}/criteria', [CriterionSetupController::class, 'store']);
             Route::put('/criteria/{criterion}', [CriterionSetupController::class, 'update']);
             Route::delete('/criteria/{criterion}', [CriterionSetupController::class, 'destroy']);
+
+            Route::post('/events/{event}/contestants', [ContestantSetupController::class, 'store']);
+            Route::post('/events/{event}/contestants/import-csv', [ContestantSetupController::class, 'importCsv']);
+            Route::post('/events/{event}/contestants/renumber', [ContestantSetupController::class, 'renumber']);
+            Route::put('/contestants/{contestant}', [ContestantSetupController::class, 'update']);
+            Route::delete('/contestants/{contestant}', [ContestantSetupController::class, 'destroy']);
+            Route::post('/contestants/{contestant}/photo', [ContestantSetupController::class, 'uploadPhoto']);
+
+            Route::post('/events/{event}/judges', [JudgeSetupController::class, 'store']);
+            Route::put('/judges/{judge}', [JudgeSetupController::class, 'update']);
+            Route::delete('/judges/{judge}', [JudgeSetupController::class, 'destroy']);
+            Route::post('/judges/{judge}/regenerate-pin', [JudgeSetupController::class, 'regeneratePin']);
+            Route::get('/events/{event}/judge-cards-pdf', [JudgeSetupController::class, 'exportJudgeCardsPdf']);
+
+            Route::get('/users', [UserManagementController::class, 'index']);
+            Route::post('/users', [UserManagementController::class, 'store']);
+            Route::put('/users/{user}', [UserManagementController::class, 'update']);
+            Route::delete('/users/{user}', [UserManagementController::class, 'destroy']);
 
             Route::post('/scores/resolve-unlock', [AdminScoreController::class, 'resolveUnlock']);
             Route::post('/deductions', [DeductionController::class, 'store']);
