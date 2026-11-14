@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
 final class Round extends Model
 {
@@ -55,6 +56,22 @@ final class Round extends Model
     public function criteria(): HasMany
     {
         return $this->hasMany(Criterion::class)->orderBy('sequence');
+    }
+
+    /**
+     * Returns leaf judging criteria (excluding parent group headers).
+     *
+     * @return Collection<int, Criterion>
+     */
+    public function leafCriteria(): Collection
+    {
+        $all = $this->relationLoaded('criteria')
+            ? $this->criteria->sortBy('sequence')->values()
+            : $this->criteria()->orderBy('sequence')->get();
+
+        $parentIds = $all->pluck('parent_id')->filter()->unique()->all();
+
+        return $all->reject(fn (Criterion $c): bool => in_array($c->id, $parentIds, true))->values();
     }
 
     public function contestants(): BelongsToMany

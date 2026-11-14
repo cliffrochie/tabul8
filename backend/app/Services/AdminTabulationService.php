@@ -161,6 +161,7 @@ final class AdminTabulationService
             if (array_key_exists('active_round_id', $payload)) {
                 $event->active_round_id = $payload['active_round_id'];
                 Round::where('id', $payload['active_round_id'])
+                    ->where('event_id', $event->id)
                     ->where('status', 'upcoming')
                     ->update(['status' => 'active']);
             }
@@ -262,6 +263,13 @@ final class AdminTabulationService
 
         $activeJudges = $round->event->judges()->where('is_active', true)->pluck('id');
         $activeContestants = collect($this->rosterService->getActiveContestantIds($round));
+        $leafCriteria = $round->leafCriteria();
+
+        if ($activeJudges->isEmpty() || $activeContestants->isEmpty() || $leafCriteria->isEmpty()) {
+            throw new ConflictHttpException(
+                'Cannot finalize round: active judges, qualified contestants, and judging criteria are required.'
+            );
+        }
 
         $unlockedCount = Score::where('round_id', $round->id)
             ->whereIn('judge_id', $activeJudges)
@@ -269,10 +277,11 @@ final class AdminTabulationService
             ->where('status', '!=', 'LOCKED')
             ->count();
 
-        $expectedCriteriaCount = $round->criteria()->count();
+        $expectedCriteriaCount = $leafCriteria->count();
         $lockedCount = Score::where('round_id', $round->id)
             ->whereIn('judge_id', $activeJudges)
             ->whereIn('contestant_id', $activeContestants)
+            ->whereIn('criterion_id', $leafCriteria->pluck('id'))
             ->where('status', 'LOCKED')
             ->count();
 
@@ -377,6 +386,7 @@ final class AdminTabulationService
 
                 if ($qualifiers->isNotEmpty() && (int) $nextRound->advancement_count > $qualifiers->count()) {
                     $nextRound->advancement_count = $qualifiers->count();
+                    $nextRound->eliminate_count = max(0, $qualifiers->count() - (int) $nextRound->advancement_count);
                 }
 
                 if ($activateNextRound) {

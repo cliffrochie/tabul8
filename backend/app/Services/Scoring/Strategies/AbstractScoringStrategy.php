@@ -29,7 +29,7 @@ abstract class AbstractScoringStrategy implements ScoringStrategyInterface
 
     public function calculate(Round $round): Collection
     {
-        $round->loadMissing(['event', 'criteria', 'deductions', 'scores']);
+        $round->load(['event', 'criteria', 'deductions', 'scores']);
 
         $judges = $round->event->judges()
             ->where('is_active', true)
@@ -155,16 +155,7 @@ abstract class AbstractScoringStrategy implements ScoringStrategyInterface
      */
     protected function resolveActiveContestants(Round $round): Collection
     {
-        $qualified = app(RoundRosterService::class)->getQualifiedContestants($round);
-        if ($qualified->isNotEmpty()) {
-            return $qualified;
-        }
-
-        // Unseeded Round r > 1 fallback (e.g., standalone unit test fixtures before finalization)
-        return $round->event->contestants()
-            ->where('status', 'active')
-            ->orderBy('candidate_number')
-            ->get();
+        return app(RoundRosterService::class)->getQualifiedContestants($round);
     }
 
     /**
@@ -172,10 +163,7 @@ abstract class AbstractScoringStrategy implements ScoringStrategyInterface
      */
     protected function resolveLeafCriteria(Round $round): Collection
     {
-        $all = $round->criteria->sortBy('sequence')->values();
-        $parentIds = $all->pluck('parent_id')->filter()->unique()->all();
-
-        return $all->reject(fn (Criterion $c): bool => in_array($c->id, $parentIds, true))->values();
+        return $round->leafCriteria();
     }
 
     /**

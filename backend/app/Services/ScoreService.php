@@ -207,7 +207,7 @@ final class ScoreService
     public function buildJudgeScoresMap(Judge $judge, Round $round): array
     {
         $contestants = $this->rosterService->getQualifiedContestants($round);
-        $criteria = $round->criteria()->orderBy('sequence')->get();
+        $criteria = $round->leafCriteria();
         $scores = Score::where('round_id', $round->id)
             ->where('judge_id', $judge->id)
             ->whereIn('contestant_id', $contestants->pluck('id'))
@@ -282,7 +282,7 @@ final class ScoreService
         string $ipAddress,
         ?string $mutationId = null
     ): void {
-        $criteria = $round->criteria()->get();
+        $criteria = $round->leafCriteria();
         $existing = Score::where('round_id', $round->id)
             ->where('judge_id', $judge->id)
             ->where('contestant_id', $contestantId)

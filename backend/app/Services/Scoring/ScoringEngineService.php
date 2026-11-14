@@ -203,8 +203,49 @@ final class ScoringEngineService
                 return $netCmp;
             }
 
-            return $b->primaryCritAvg <=> $a->primaryCritAvg;
+            $critCmp = $b->primaryCritAvg <=> $a->primaryCritAvg;
+            if ($critCmp !== 0) {
+                return $critCmp;
+            }
+
+            $firstPlaceCmp = $b->firstPlaceCount <=> $a->firstPlaceCount;
+            if ($firstPlaceCmp !== 0) {
+                return $firstPlaceCmp;
+            }
+
+            return ($a->chairmanRank ?? PHP_FLOAT_MAX) <=> ($b->chairmanRank ?? PHP_FLOAT_MAX);
         });
+
+        $isSameDisplayedCum = static fn (RoundResultDTO $a, RoundResultDTO $b): bool =>
+            round((float) $a->cumulativeScore, 2, PHP_ROUND_HALF_UP)
+            === round((float) $b->cumulativeScore, 2, PHP_ROUND_HALF_UP);
+
+        $isCompletelyIdentical = static fn (RoundResultDTO $a, RoundResultDTO $b): bool =>
+            $a->cumulativeScore === $b->cumulativeScore
+            && $a->netComposite === $b->netComposite
+            && $a->primaryCritAvg === $b->primaryCritAvg
+            && $a->firstPlaceCount === $b->firstPlaceCount
+            && $a->chairmanRank === $b->chairmanRank;
+
+        $resolveTieRule = static function (RoundResultDTO $a, RoundResultDTO $b): string {
+            if ($a->cumulativeScore !== $b->cumulativeScore) {
+                return 'UNROUNDED_PRECISION';
+            }
+            if ($a->netComposite !== $b->netComposite) {
+                return 'CURRENT_ROUND_NET';
+            }
+            if ($a->primaryCritAvg !== $b->primaryCritAvg) {
+                return 'PRIMARY_CRITERION';
+            }
+            if ($a->firstPlaceCount !== $b->firstPlaceCount) {
+                return 'FIRST_PLACE_COUNT';
+            }
+            if ($a->chairmanRank !== $b->chairmanRank) {
+                return 'CHAIRMAN_RANK';
+            }
+
+            return 'NONE';
+        };
 
         $reranked = [];
         $currentRank = 1;
@@ -214,17 +255,18 @@ final class ScoringEngineService
             $prev = $idx > 0 ? $withCumulative[$idx - 1] : null;
             $next = $idx + 1 < $total ? $withCumulative[$idx + 1] : null;
 
-            $samePrev = $prev !== null
-                && $prev->cumulativeScore === $dto->cumulativeScore
-                && $prev->netComposite === $dto->netComposite
-                && $prev->primaryCritAvg === $dto->primaryCritAvg;
-            $sameNext = $next !== null
-                && $dto->cumulativeScore === $next->cumulativeScore
-                && $dto->netComposite === $next->netComposite
-                && $dto->primaryCritAvg === $next->primaryCritAvg;
+            $tiedWithPrevExact = $prev !== null && $isCompletelyIdentical($prev, $dto);
+            $tiedWithNextExact = $next !== null && $isCompletelyIdentical($dto, $next);
 
-            if ($idx > 0 && ! $samePrev) {
+            if ($idx > 0 && ! $tiedWithPrevExact) {
                 $currentRank = $idx + 1;
+            }
+
+            $tieBreakRule = 'NONE';
+            if ($prev !== null && $isSameDisplayedCum($prev, $dto) && ! $tiedWithPrevExact) {
+                $tieBreakRule = $resolveTieRule($prev, $dto);
+            } elseif ($next !== null && $isSameDisplayedCum($dto, $next) && ! $tiedWithNextExact) {
+                $tieBreakRule = $resolveTieRule($dto, $next);
             }
 
             $reranked[] = new RoundResultDTO(
@@ -240,8 +282,8 @@ final class ScoringEngineService
                 primaryCritAvg: $dto->primaryCritAvg,
                 chairmanRank: $dto->chairmanRank,
                 finalRank: $currentRank,
-                isTied: $samePrev || $sameNext,
-                tieBreakRuleApplied: $dto->tieBreakRuleApplied,
+                isTied: $tiedWithPrevExact || $tiedWithNextExact,
+                tieBreakRuleApplied: $tieBreakRule,
                 isQualified: $currentRank <= $round->advancement_count,
                 judgeBreakdownSnapshot: $dto->judgeBreakdownSnapshot,
             );

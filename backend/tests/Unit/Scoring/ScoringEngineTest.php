@@ -309,6 +309,8 @@ test('T-ALG-08: cumulative round combines prior round weights accurately', funct
         'sequence' => 1,
     ]);
 
+    $round2->contestants()->sync([$fx['contestants'][0]->id => ['performance_order' => 1]]);
+
     recordScoresForContestant($fx['round'], $fx['contestants'][0], $fx['judges'], $fx['criteria'], [[90], [90]]);
     recordScoresForContestant($round2, $fx['contestants'][0], $fx['judges'], [$crit2], [[95], [95]]);
 
@@ -343,6 +345,8 @@ test('T-ALG-09: back to zero round ignores prior round scores', function () {
         'score_step' => 0.50,
         'sequence' => 1,
     ]);
+
+    $round2->contestants()->sync([$fx['contestants'][0]->id => ['performance_order' => 1]]);
 
     recordScoresForContestant($fx['round'], $fx['contestants'][0], $fx['judges'], $fx['criteria'], [[99], [99]]);
     recordScoresForContestant($round2, $fx['contestants'][0], $fx['judges'], [$crit2], [[85], [85]]);
@@ -488,6 +492,14 @@ test('T-ALG-12: dynamic four-round segmented cumulative and back-to-zero chain i
     ]);
     $c4 = Criterion::create(['round_id' => $r4->id, 'name' => 'Overall', 'weight_percentage' => 100.0, 'min_score' => 70.0, 'max_score' => 100.0, 'score_step' => 0.5, 'sequence' => 1]);
 
+    $cIds = [
+        $fx['contestants'][0]->id => ['performance_order' => 1],
+        $fx['contestants'][1]->id => ['performance_order' => 2],
+    ];
+    $r2->contestants()->sync($cIds);
+    $r3->contestants()->sync($cIds);
+    $r4->contestants()->sync($cIds);
+
     // C1 dominates R1+R2 (95, 95) -> R2 cumulative 95.0; C2 has (80, 80) -> R2 cumulative 80.0
     recordScoresForContestant($r1, $fx['contestants'][0], $fx['judges'], $fx['criteria'], [[95], [95]]);
     recordScoresForContestant($r1, $fx['contestants'][1], $fx['judges'], $fx['criteria'], [[80], [80]]);
@@ -535,6 +547,8 @@ test('mid-segment cumulative round normalizes by accumulated segment weight onto
         'status' => 'active',
     ]);
     $c2 = Criterion::create(['round_id' => $r2->id, 'name' => 'Overall', 'weight_percentage' => 100.0, 'min_score' => 70.0, 'max_score' => 100.0, 'score_step' => 0.5, 'sequence' => 1]);
+
+    $r2->contestants()->sync([$fx['contestants'][0]->id => ['performance_order' => 1]]);
 
     // R1 = 80 (weight 40), R2 = 94 (weight 30) -> (80*40 + 94*30) / 70 = (3200 + 2820) / 70 = 6020 / 70 = 86.000
     recordScoresForContestant($fx['round'], $fx['contestants'][0], $fx['judges'], $fx['criteria'], [[80], [80]]);

@@ -324,3 +324,66 @@ it('reopens a finalized round only when the next round has zero locked scores', 
     $this->postJson("/api/v1/admin/rounds/{$fx['round1']->id}/reopen")
         ->assertStatus(409);
 });
+
+it('counts only leaf criteria for finalizeRound quorum and blocks finalizing empty unseeded rounds', function () {
+    $fx = seedMultiRoundEvent();
+    Sanctum::actingAs($fx['admin'], ['role:tabulator']);
+
+    // Unseeded round2 (0 qualifiers) cannot be finalized prematurely
+    $this->postJson("/api/v1/admin/rounds/{$fx['round2']->id}/finalize", [])
+        ->assertStatus(409);
+
+    // Add a parent criterion header + two leaf sub-criteria to round1 and clear the old single criterion
+    $fx['round1']->criteria()->delete();
+    $parentGroup = Criterion::create([
+        'round_id' => $fx['round1']->id,
+        'name' => 'Performance Group',
+        'weight_percentage' => 0,
+        'min_score' => 0,
+        'max_score' => 100,
+        'score_step' => 1,
+        'sequence' => 1,
+    ]);
+    $leafA = Criterion::create([
+        'round_id' => $fx['round1']->id,
+        'parent_id' => $parentGroup->id,
+        'name' => 'Technique',
+        'weight_percentage' => 50,
+        'min_score' => 0,
+        'max_score' => 100,
+        'score_step' => 1,
+        'sequence' => 2,
+    ]);
+    $leafB = Criterion::create([
+        'round_id' => $fx['round1']->id,
+        'parent_id' => $parentGroup->id,
+        'name' => 'Stage Presence',
+        'weight_percentage' => 50,
+        'min_score' => 0,
+        'max_score' => 100,
+        'score_step' => 1,
+        'sequence' => 3,
+    ]);
+
+    foreach ([$fx['c1'], $fx['c2'], $fx['c3']] as $idx => $c) {
+        foreach ([$leafA, $leafB] as $crit) {
+            Score::create([
+                'round_id' => $fx['round1']->id,
+                'criterion_id' => $crit->id,
+                'contestant_id' => $c->id,
+                'judge_id' => $fx['judge']->id,
+                'raw_score' => 95 - $idx * 3,
+                'weighted_score' => (95 - $idx * 3) * 0.5,
+                'status' => 'LOCKED',
+                'submitted_at' => now(),
+            ]);
+        }
+    }
+
+    // Should finalize cleanly with 0 Score rows created for $parentGroup
+    $this->postJson("/api/v1/admin/rounds/{$fx['round1']->id}/finalize", [
+        'activate_next_round' => true,
+    ])->assertStatus(200);
+
+    expect(Score::where('criterion_id', $parentGroup->id)->count())->toBe(0);
+});
