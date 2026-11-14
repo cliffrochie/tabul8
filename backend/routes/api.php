@@ -1,10 +1,12 @@
 <?php
 
 use App\Http\Controllers\V1\Admin\AdminScoreController;
+use App\Http\Controllers\V1\Admin\CriterionSetupController;
 use App\Http\Controllers\V1\Admin\DeductionController;
 use App\Http\Controllers\V1\Admin\EventCrudController;
 use App\Http\Controllers\V1\Admin\ReportController;
 use App\Http\Controllers\V1\Admin\RoundControlController;
+use App\Http\Controllers\V1\Admin\RoundSetupController;
 use App\Http\Controllers\V1\Admin\StageSyncController;
 use App\Http\Controllers\V1\AuthController;
 use App\Http\Controllers\V1\EventStateController;
@@ -39,6 +41,16 @@ Route::prefix('v1')->group(function (): void {
             Route::put('/events/{event}', [EventCrudController::class, 'update']);
             Route::delete('/events/{event}', [EventCrudController::class, 'destroy']);
             Route::get('/events/{event}/preflight', [EventCrudController::class, 'preflight']);
+
+            Route::post('/events/{event}/rounds', [RoundSetupController::class, 'store']);
+            Route::post('/events/{event}/rounds/generate-funnel', [RoundSetupController::class, 'generateFunnel']);
+            Route::put('/events/{event}/rounds/reorder', [RoundSetupController::class, 'reorder']);
+            Route::put('/rounds/{round}', [RoundSetupController::class, 'update']);
+            Route::delete('/rounds/{round}', [RoundSetupController::class, 'destroy']);
+
+            Route::post('/rounds/{round}/criteria', [CriterionSetupController::class, 'store']);
+            Route::put('/criteria/{criterion}', [CriterionSetupController::class, 'update']);
+            Route::delete('/criteria/{criterion}', [CriterionSetupController::class, 'destroy']);
 
             Route::post('/scores/resolve-unlock', [AdminScoreController::class, 'resolveUnlock']);
             Route::post('/deductions', [DeductionController::class, 'store']);

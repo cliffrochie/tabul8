@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Criterion;
 use App\Models\Event;
 use App\Models\Round;
+use App\Models\Score;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -429,5 +430,410 @@ final class EventSetupService
                 ]);
             }
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function createRound(Event $event, array $data): Round
+    {
+        $maxSeq = (int) ($event->rounds()->max('sequence') ?? 0);
+        $nextSeq = $maxSeq + 1;
+        $entering = $this->estimateEnteringPool($event, $nextSeq);
+
+        [$cutoffMode, $advancement, $eliminate] = $this->resolveDualSyncedCutoff(
+            $data['cutoff_mode'] ?? 'top_n_advance',
+            isset($data['advancement_count']) ? (int) $data['advancement_count'] : null,
+            isset($data['eliminate_count']) ? (int) $data['eliminate_count'] : null,
+            $entering
+        );
+
+        return Round::create([
+            'event_id' => $event->id,
+            'name' => $data['name'],
+            'sequence' => $nextSeq,
+            'scoring_strategy' => $data['scoring_strategy'] ?? 'weighted',
+            'weight_in_overall' => $data['weight_in_overall'] ?? 100.00,
+            'is_back_to_zero' => (bool) ($data['is_back_to_zero'] ?? ($nextSeq === 1)),
+            'cutoff_mode' => $cutoffMode,
+            'advancement_count' => $advancement,
+            'eliminate_count' => $eliminate,
+            'status' => 'upcoming',
+            'is_locked' => false,
+            'settings' => $data['settings'] ?? [],
+        ])->fresh('criteria');
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function updateRound(Round $round, array $data): Round
+    {
+        if ($round->status === 'finalized') {
+            throw new ConflictHttpException('Finalized rounds cannot be edited unless reopened.');
+        }
+
+        $entering = $this->estimateEnteringPool($round->event, $round->sequence);
+        $cutoffMode = $data['cutoff_mode'] ?? $round->cutoff_mode ?? 'top_n_advance';
+        $advancementInput = array_key_exists('advancement_count', $data)
+            ? (int) $data['advancement_count']
+            : ($cutoffMode === 'eliminate_n' && array_key_exists('eliminate_count', $data)
+                ? null
+                : (int) $round->advancement_count);
+        $eliminateInput = array_key_exists('eliminate_count', $data)
+            ? (int) $data['eliminate_count']
+            : (int) ($round->eliminate_count ?? 0);
+
+        if (
+            array_key_exists('advancement_count', $data)
+            || array_key_exists('eliminate_count', $data)
+            || array_key_exists('cutoff_mode', $data)
+        ) {
+            [$cutoffMode, $advancement, $eliminate] = $this->resolveDualSyncedCutoff(
+                $cutoffMode,
+                $advancementInput,
+                $eliminateInput,
+                $entering
+            );
+            $data['cutoff_mode'] = $cutoffMode;
+            $data['advancement_count'] = $advancement;
+            $data['eliminate_count'] = $eliminate;
+        }
+
+        $allowed = array_intersect_key($data, array_flip([
+            'name',
+            'scoring_strategy',
+            'weight_in_overall',
+            'is_back_to_zero',
+            'cutoff_mode',
+            'advancement_count',
+            'eliminate_count',
+            'settings',
+        ]));
+
+        $round->update($allowed);
+
+        return $round->fresh('criteria');
+    }
+
+    public function deleteRound(Round $round): void
+    {
+        $this->assertRoundMutable($round);
+
+        DB::transaction(function () use ($round): void {
+            $event = $round->event;
+            $round->delete();
+
+            $remaining = $event->rounds()->orderBy('sequence')->get();
+            foreach ($remaining as $idx => $r) {
+                $r->update(['sequence' => 10000 + $idx]);
+            }
+            foreach ($remaining as $idx => $r) {
+                $r->update(['sequence' => $idx + 1]);
+            }
+        });
+    }
+
+    /**
+     * @return Collection<int, Round>
+     */
+    public function generateFunnel(
+        Event $event,
+        int $roundCount,
+        int $finalWinnersCount,
+        bool $finalBackToZero
+    ): Collection {
+        $existingRounds = $event->rounds()->get();
+        foreach ($existingRounds as $r) {
+            $this->assertRoundMutable($r);
+        }
+
+        $activeContestants = $event->contestants()->where('status', 'active')->count();
+        $startingPool = max($finalWinnersCount, $activeContestants > 0 ? $activeContestants : max(12, $finalWinnersCount * 4));
+
+        return DB::transaction(function () use (
+            $event,
+            $roundCount,
+            $finalWinnersCount,
+            $finalBackToZero,
+            $startingPool
+        ): Collection {
+            $event->rounds()->delete();
+
+            $totalCut = max(0, $startingPool - $finalWinnersCount);
+            $step = $roundCount > 0 ? $totalCut / $roundCount : 0;
+            $runningEntering = $startingPool;
+            $created = collect();
+
+            for ($i = 1; $i <= $roundCount; $i++) {
+                $advancement = $i === $roundCount
+                    ? $finalWinnersCount
+                    : max($finalWinnersCount, (int) round($startingPool - ($step * $i)));
+                $advancement = min($runningEntering, $advancement);
+                $eliminate = max(0, $runningEntering - $advancement);
+
+                $isLast = $i === $roundCount;
+                $name = $roundCount === 1
+                    ? 'Grand Finals'
+                    : ($i === 1 ? 'Round 1: Preliminaries' : ($isLast ? "Round {$i}: Grand Finals" : "Round {$i}: Eliminations"));
+
+                $round = Round::create([
+                    'event_id' => $event->id,
+                    'name' => $name,
+                    'sequence' => $i,
+                    'scoring_strategy' => $isLast ? 'ordinal' : 'weighted',
+                    'weight_in_overall' => 100.00,
+                    'is_back_to_zero' => $i === 1 ? true : ($isLast ? $finalBackToZero : false),
+                    'cutoff_mode' => 'top_n_advance',
+                    'advancement_count' => max(1, $advancement),
+                    'eliminate_count' => $eliminate,
+                    'status' => 'upcoming',
+                ]);
+
+                Criterion::create([
+                    'round_id' => $round->id,
+                    'name' => 'Overall Performance',
+                    'weight_percentage' => 100.00,
+                    'min_score' => 70.00,
+                    'max_score' => 100.00,
+                    'score_step' => 0.50,
+                    'sequence' => 1,
+                ]);
+
+                $created->push($round->fresh('criteria'));
+                $runningEntering = max(1, $advancement);
+            }
+
+            return $created;
+        });
+    }
+
+    /**
+     * Two-phase sequence update inside a single transaction to prevent UNIQUE(event_id, sequence) collisions.
+     *
+     * @param  array<int, int>  $roundIds
+     * @return Collection<int, Round>
+     */
+    public function reorderRounds(Event $event, array $roundIds): Collection
+    {
+        $rounds = $event->rounds()->orderBy('sequence')->get();
+        foreach ($rounds as $r) {
+            $this->assertRoundMutable($r);
+        }
+
+        $existingIds = $rounds->pluck('id')->map('intval')->sort()->values()->all();
+        $incomingIds = collect($roundIds)->map('intval')->sort()->values()->all();
+
+        if ($existingIds !== $incomingIds) {
+            throw ValidationException::withMessages([
+                'round_ids' => ['round_ids must contain the exact set of round IDs belonging to this event.'],
+            ]);
+        }
+
+        DB::transaction(function () use ($rounds, $roundIds): void {
+            // Phase 1: shift to safe positive temporary offsets to avoid UNIQUE(event_id, sequence) collision
+            foreach ($rounds as $idx => $r) {
+                $r->update(['sequence' => 10000 + $idx]);
+            }
+
+            // Phase 2: assign final contiguous 1..R sequence
+            foreach (array_values($roundIds) as $seqIdx => $roundId) {
+                Round::where('id', (int) $roundId)->update(['sequence' => $seqIdx + 1]);
+            }
+        });
+
+        return $event->rounds()->with('criteria')->orderBy('sequence')->get();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{criterion: Criterion, leaf_weight_sum: float}
+     */
+    public function createCriterion(Round $round, array $data): array
+    {
+        $this->assertRoundCriteriaEditable($round);
+
+        if (! empty($data['parent_id'])) {
+            $parent = Criterion::where('id', (int) $data['parent_id'])
+                ->where('round_id', $round->id)
+                ->first();
+
+            if ($parent === null) {
+                throw ValidationException::withMessages([
+                    'parent_id' => ['Parent criterion must belong to the same round.'],
+                ]);
+            }
+            if ($parent->parent_id !== null) {
+                throw ValidationException::withMessages([
+                    'parent_id' => ['Criteria hierarchy supports a maximum depth of two levels.'],
+                ]);
+            }
+        }
+
+        $minScore = (float) ($data['min_score'] ?? 70.00);
+        $maxScore = (float) ($data['max_score'] ?? 100.00);
+        if ($minScore >= $maxScore) {
+            throw ValidationException::withMessages([
+                'min_score' => ['Minimum score must be strictly less than maximum score.'],
+            ]);
+        }
+
+        $nextSeq = (int) ($round->criteria()->max('sequence') ?? 0) + 1;
+
+        $criterion = Criterion::create([
+            'round_id' => $round->id,
+            'parent_id' => $data['parent_id'] ?? null,
+            'name' => $data['name'],
+            'description' => $data['description'] ?? null,
+            'weight_percentage' => $data['weight_percentage'],
+            'min_score' => $minScore,
+            'max_score' => $maxScore,
+            'score_step' => $data['score_step'] ?? 0.50,
+            'sequence' => $data['sequence'] ?? $nextSeq,
+        ]);
+
+        return [
+            'criterion' => $criterion->fresh(),
+            'leaf_weight_sum' => $this->computeLeafCriteriaWeightSum($round->criteria()->get()),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{criterion: Criterion, leaf_weight_sum: float}
+     */
+    public function updateCriterion(Criterion $criterion, array $data): array
+    {
+        $round = $criterion->round;
+        $this->assertRoundCriteriaEditable($round);
+
+        $minScore = (float) ($data['min_score'] ?? $criterion->min_score);
+        $maxScore = (float) ($data['max_score'] ?? $criterion->max_score);
+        if ($minScore >= $maxScore) {
+            throw ValidationException::withMessages([
+                'min_score' => ['Minimum score must be strictly less than maximum score.'],
+            ]);
+        }
+
+        if (array_key_exists('parent_id', $data) && (int) $data['parent_id'] === $criterion->id) {
+            throw ValidationException::withMessages([
+                'parent_id' => ['A criterion cannot be its own parent.'],
+            ]);
+        }
+
+        $allowed = array_intersect_key($data, array_flip([
+            'parent_id',
+            'name',
+            'description',
+            'weight_percentage',
+            'min_score',
+            'max_score',
+            'score_step',
+            'sequence',
+        ]));
+
+        $criterion->update($allowed);
+
+        return [
+            'criterion' => $criterion->fresh(),
+            'leaf_weight_sum' => $this->computeLeafCriteriaWeightSum($round->criteria()->get()),
+        ];
+    }
+
+    public function deleteCriterion(Criterion $criterion): float
+    {
+        $round = $criterion->round;
+        $this->assertRoundCriteriaEditable($round);
+
+        $criterion->delete();
+
+        return $this->computeLeafCriteriaWeightSum($round->criteria()->get());
+    }
+
+    private function assertRoundMutable(Round $round): void
+    {
+        if (in_array($round->status, ['active', 'locked', 'finalized'], true)) {
+            throw new ConflictHttpException(
+                "Round '{$round->name}' cannot be modified or deleted while {$round->status}."
+            );
+        }
+
+        $hasLockedScores = Score::where('round_id', $round->id)
+            ->where('status', 'LOCKED')
+            ->exists();
+
+        if ($hasLockedScores) {
+            throw new ConflictHttpException(
+                "Round '{$round->name}' has locked judge scores and cannot be modified or deleted."
+            );
+        }
+    }
+
+    private function assertRoundCriteriaEditable(Round $round): void
+    {
+        if ($round->status === 'finalized' || $round->is_locked) {
+            throw new ConflictHttpException('Criteria cannot be modified once a round is frozen or finalized.');
+        }
+
+        $hasLockedScores = Score::where('round_id', $round->id)
+            ->where('status', 'LOCKED')
+            ->exists();
+
+        if ($hasLockedScores) {
+            throw new ConflictHttpException('Criteria cannot be modified after judge scores have been locked.');
+        }
+    }
+
+    private function estimateEnteringPool(Event $event, int $sequence): int
+    {
+        $totalActive = $event->contestants()->where('status', 'active')->count();
+        if ($sequence <= 1) {
+            return $totalActive;
+        }
+
+        $prevRound = $event->rounds()
+            ->where('sequence', '<', $sequence)
+            ->orderByDesc('sequence')
+            ->first();
+
+        if ($prevRound !== null) {
+            return $totalActive > 0
+                ? min($totalActive, max(1, (int) $prevRound->advancement_count))
+                : max(1, (int) $prevRound->advancement_count);
+        }
+
+        return $totalActive;
+    }
+
+    /**
+     * @return array{0: string, 1: int, 2: int}
+     */
+    private function resolveDualSyncedCutoff(
+        string $cutoffMode,
+        ?int $advancementCount,
+        ?int $eliminateCount,
+        int $enteringPool
+    ): array {
+        if ($cutoffMode === 'eliminate_n' && $eliminateCount !== null && $enteringPool > 0 && $advancementCount === null) {
+            $computedAdvancement = $enteringPool - $eliminateCount;
+            if ($computedAdvancement < 1 || $computedAdvancement > $enteringPool) {
+                throw ValidationException::withMessages([
+                    'eliminate_count' => ["Eliminate count must leave between 1 and {$enteringPool} advancing finalists."],
+                ]);
+            }
+
+            return [$cutoffMode, $computedAdvancement, $eliminateCount];
+        }
+
+        $adv = max(1, $advancementCount ?? 3);
+        if ($enteringPool > 0 && $adv > $enteringPool) {
+            throw ValidationException::withMessages([
+                'advancement_count' => ["Advancement count ({$adv}) cannot exceed entering contestants ({$enteringPool})."],
+            ]);
+        }
+
+        $elim = $enteringPool > 0 ? max(0, $enteringPool - $adv) : max(0, $eliminateCount ?? 0);
+
+        return [$cutoffMode, $adv, $elim];
     }
 }
